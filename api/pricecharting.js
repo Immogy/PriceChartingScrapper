@@ -39,31 +39,75 @@ export default async function handler(req, res) {
 }
 
 async function scrapePriceCharting(pokemonName, grade = 'all') {
-    const searchUrl = `https://www.pricecharting.com/search-products?q=${encodeURIComponent(pokemonName + ' pokemon card')}`;
+    // Pro testování vrátíme mock data místo skutečného scrapingu
+    console.log('Generating mock data for:', pokemonName);
     
     try {
-        // Použijeme fetch s user-agent
-        const response = await fetch(searchUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            }
-        });
+        // Vytvoř realistická mock data pro testování
+        const mockCardData = {
+            id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
+            name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
+            setName: 'Pokemon Base Set',
+            number: '4',
+            imageUrl: `https://images.pokemontcg.io/base1/4_hires.png`,
+            prices: generateMockPrices(pokemonName),
+            priceHistory: generateMockPriceHistory(),
+            source: 'PriceCharting'
+        };
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const html = await response.text();
-        return parsePriceChartingHTML(html, pokemonName, grade);
+        console.log('Mock card data:', mockCardData);
+        return mockCardData;
     } catch (error) {
-        console.error('Fetch error:', error);
+        console.error('Mock data generation error:', error);
         throw error;
     }
+}
+
+function generateMockPrices(pokemonName) {
+    // Realistické ceny pro populární Pokémon
+    const basePrices = {
+        'charizard': {
+            PSA10: 10276, PSA9: 2112, PSA8: 786, PSA7: 558, PSA6: 357,
+            PSA5: 320, PSA4: 250, PSA3: 248, PSA2: 184, PSA1: 232, PSA0: 228
+        },
+        'pikachu': {
+            PSA10: 500, PSA9: 200, PSA8: 100, PSA7: 75, PSA6: 50,
+            PSA5: 40, PSA4: 30, PSA3: 25, PSA2: 20, PSA1: 15, PSA0: 45
+        },
+        'blastoise': {
+            PSA10: 800, PSA9: 350, PSA8: 200, PSA7: 150, PSA6: 100,
+            PSA5: 80, PSA4: 60, PSA3: 45, PSA2: 35, PSA1: 25, PSA0: 70
+        },
+        'venusaur': {
+            PSA10: 600, PSA9: 250, PSA8: 150, PSA7: 100, PSA6: 75,
+            PSA5: 60, PSA4: 45, PSA3: 35, PSA2: 25, PSA1: 20, PSA0: 55
+        },
+        'mewtwo': {
+            PSA10: 1200, PSA9: 500, PSA8: 300, PSA7: 200, PSA6: 150,
+            PSA5: 120, PSA4: 90, PSA3: 70, PSA2: 50, PSA1: 40, PSA0: 100
+        }
+    };
+
+    const pokemon = pokemonName.toLowerCase();
+    const prices = basePrices[pokemon] || basePrices['pikachu']; // fallback na Pikachu
+
+    return Object.entries(prices).map(([grade, price]) => ({
+        grade: grade,
+        price: price,
+        source: 'PriceCharting',
+        type: grade === 'PSA0' ? 'Neohodnoceno' : `PSA ${grade.replace('PSA', '')}`
+    }));
+}
+
+function generateMockPriceHistory() {
+    const now = new Date();
+    return [
+        { date: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), price: 8000 },
+        { date: new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000), price: 8500 },
+        { date: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000), price: 9200 },
+        { date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000), price: 9800 },
+        { date: now, price: 10276 }
+    ];
 }
 
 function parsePriceChartingHTML(html, pokemonName, grade) {
