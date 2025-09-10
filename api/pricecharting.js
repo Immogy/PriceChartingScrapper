@@ -48,8 +48,8 @@ async function scrapePriceCharting(pokemonName, grade = 'all') {
             id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
             setName: 'Pokemon Base Set',
-            number: '4',
-            imageUrl: `https://images.pokemontcg.io/base1/4_hires.png`,
+            number: getCardNumber(pokemonName),
+            imageUrl: getCardImageUrl(pokemonName),
             prices: generateMockPrices(pokemonName),
             priceHistory: generateMockPriceHistory(),
             source: 'PriceCharting'
