@@ -40,218 +40,224 @@ export default async function handler(req, res) {
 }
 
 async function scrapePriceCharting(pokemonName, grade = 'all') {
-    // Pro testování vrátíme mock data místo skutečného scrapingu
-    console.log('Generating mock data for:', pokemonName);
+    console.log('Scraping real data from PriceCharting for:', pokemonName);
     
     try {
-        // Vytvoř více verzí karty pro stejného Pokémona
-        const cardVariants = generateCardVariants(pokemonName);
+        // Skutečné scrapování z PriceCharting
+        const searchUrl = `https://www.pricecharting.com/search-products?q=${encodeURIComponent(pokemonName + ' pokemon card')}`;
         
-        console.log('Mock card variants:', cardVariants);
+        const response = await fetch(searchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const html = await response.text();
+        const cardVariants = parsePriceChartingHTML(html, pokemonName, grade);
+        
+        console.log('Scraped card variants:', cardVariants);
         return cardVariants;
     } catch (error) {
-        console.error('Mock data generation error:', error);
+        console.error('Scraping error:', error);
         throw error;
     }
 }
 
-function generateCardVariants(pokemonName) {
-    const pokemon = pokemonName.toLowerCase();
-    const variants = [];
-    
-    // Definuj různé sety a verze pro populární Pokémon
-    const cardVariants = {
-        'charizard': [
-            { setName: 'Base Set', number: '4', rarity: 'Rare Holo', year: '1999' },
-            { setName: 'Base Set 2', number: '4', rarity: 'Rare Holo', year: '2000' },
-            { setName: 'Legendary Collection', number: '4', rarity: 'Rare Holo', year: '2002' },
-            { setName: 'XY Evolutions', number: '12', rarity: 'Rare Holo', year: '2016' },
-            { setName: 'Champion\'s Path', number: '074', rarity: 'Rare Holo VMAX', year: '2020' }
-        ],
-        'pikachu': [
-            { setName: 'Base Set', number: '58', rarity: 'Common', year: '1999' },
-            { setName: 'Jungle', number: '60', rarity: 'Common', year: '1999' },
-            { setName: 'Fossil', number: '58', rarity: 'Common', year: '1999' },
-            { setName: 'Base Set 2', number: '58', rarity: 'Common', year: '2000' },
-            { setName: 'XY Evolutions', number: '20', rarity: 'Common', year: '2016' }
-        ],
-        'blastoise': [
-            { setName: 'Base Set', number: '2', rarity: 'Rare Holo', year: '1999' },
-            { setName: 'Base Set 2', number: '2', rarity: 'Rare Holo', year: '2000' },
-            { setName: 'Legendary Collection', number: '2', rarity: 'Rare Holo', year: '2002' },
-            { setName: 'XY Evolutions', number: '2', rarity: 'Rare Holo', year: '2016' }
-        ],
-        'venusaur': [
-            { setName: 'Base Set', number: '15', rarity: 'Rare Holo', year: '1999' },
-            { setName: 'Base Set 2', number: '15', rarity: 'Rare Holo', year: '2000' },
-            { setName: 'Legendary Collection', number: '15', rarity: 'Rare Holo', year: '2002' },
-            { setName: 'XY Evolutions', number: '1', rarity: 'Rare Holo', year: '2016' }
-        ],
-        'mewtwo': [
-            { setName: 'Base Set', number: '10', rarity: 'Rare Holo', year: '1999' },
-            { setName: 'Base Set 2', number: '10', rarity: 'Rare Holo', year: '2000' },
-            { setName: 'Legendary Collection', number: '10', rarity: 'Rare Holo', year: '2002' },
-            { setName: 'XY Evolutions', number: '52', rarity: 'Rare Holo', year: '2016' }
-        ]
-    };
-    
-    const pokemonVariants = cardVariants[pokemon] || cardVariants['pikachu'];
-    
-    pokemonVariants.forEach((variant, index) => {
-        variants.push({
-            id: `pricecharting_${pokemon}_${variant.setName.toLowerCase().replace(/\s+/g, '_')}_${variant.number}`,
-            name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
-            setName: variant.setName,
-            number: variant.number,
-            rarity: variant.rarity,
-            year: variant.year,
-            imageUrl: getCardImageUrl(pokemon, variant.setName, variant.number),
-            prices: generateMockPrices(pokemon, variant.rarity),
-            priceHistory: generateMockPriceHistory(),
-            source: 'PriceCharting'
-        });
-    });
-    
-    return variants;
-}
-
-function generateMockPrices(pokemonName, rarity = 'Rare Holo') {
-    // Realistické ceny pro populární Pokémon s ohledem na raritu
-    const basePrices = {
-        'charizard': {
-            'Rare Holo': { PSA10: 10276, PSA9: 2112, PSA8: 786, PSA7: 558, PSA6: 357, PSA5: 320, PSA4: 250, PSA3: 248, PSA2: 184, PSA1: 232, PSA0: 228 },
-            'Rare Holo VMAX': { PSA10: 15000, PSA9: 8000, PSA8: 4000, PSA7: 2500, PSA6: 1500, PSA5: 1000, PSA4: 800, PSA3: 600, PSA2: 400, PSA1: 300, PSA0: 500 }
-        },
-        'pikachu': {
-            'Common': { PSA10: 200, PSA9: 100, PSA8: 50, PSA7: 30, PSA6: 20, PSA5: 15, PSA4: 10, PSA3: 8, PSA2: 5, PSA1: 3, PSA0: 8 },
-            'Rare Holo': { PSA10: 500, PSA9: 200, PSA8: 100, PSA7: 75, PSA6: 50, PSA5: 40, PSA4: 30, PSA3: 25, PSA2: 20, PSA1: 15, PSA0: 45 }
-        },
-        'blastoise': {
-            'Rare Holo': { PSA10: 800, PSA9: 350, PSA8: 200, PSA7: 150, PSA6: 100, PSA5: 80, PSA4: 60, PSA3: 45, PSA2: 35, PSA1: 25, PSA0: 70 }
-        },
-        'venusaur': {
-            'Rare Holo': { PSA10: 600, PSA9: 250, PSA8: 150, PSA7: 100, PSA6: 75, PSA5: 60, PSA4: 45, PSA3: 35, PSA2: 25, PSA1: 20, PSA0: 55 }
-        },
-        'mewtwo': {
-            'Rare Holo': { PSA10: 1200, PSA9: 500, PSA8: 300, PSA7: 200, PSA6: 150, PSA5: 120, PSA4: 90, PSA3: 70, PSA2: 50, PSA1: 40, PSA0: 100 }
-        }
-    };
-
-    const pokemon = pokemonName.toLowerCase();
-    const pokemonPrices = basePrices[pokemon] || basePrices['pikachu'];
-    const prices = pokemonPrices[rarity] || pokemonPrices['Rare Holo'] || pokemonPrices['Common'];
-
-    return Object.entries(prices).map(([grade, price]) => ({
-        grade: grade,
-        price: price,
-        source: 'PriceCharting',
-        type: grade === 'PSA0' ? 'Neohodnoceno' : `PSA ${grade.replace('PSA', '')}`
-    }));
-}
-
-function generateMockPriceHistory() {
-    const now = new Date();
-    return [
-        { date: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000), price: 8000 },
-        { date: new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000), price: 8500 },
-        { date: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000), price: 9200 },
-        { date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000), price: 9800 },
-        { date: now, price: 10276 }
-    ];
-}
-
-function getCardNumber(pokemonName) {
-    const cardNumbers = {
-        'charizard': '4',
-        'pikachu': '58',
-        'blastoise': '2',
-        'venusaur': '15',
-        'mewtwo': '10'
-    };
-    return cardNumbers[pokemonName.toLowerCase()] || '?';
-}
-
-function getCardImageUrl(pokemonName, setName = 'Base Set', number = '4') {
-    const pokemon = pokemonName.toLowerCase();
-    
-    // Mapování setů na kódy
-    const setCodes = {
-        'Base Set': 'base1',
-        'Base Set 2': 'base2',
-        'Legendary Collection': 'base3',
-        'XY Evolutions': 'xy12',
-        'Champion\'s Path': 'swsh4',
-        'Jungle': 'base4',
-        'Fossil': 'base5'
-    };
-    
-    const setCode = setCodes[setName] || 'base1';
-    
-    // Pro různé sety použij různé obrázky
-    if (setName === 'Base Set') {
-        const baseImages = {
-            'charizard': 'https://images.pokemontcg.io/base1/4_hires.png',
-            'pikachu': 'https://images.pokemontcg.io/base1/58_hires.png',
-            'blastoise': 'https://images.pokemontcg.io/base1/2_hires.png',
-            'venusaur': 'https://images.pokemontcg.io/base1/15_hires.png',
-            'mewtwo': 'https://images.pokemontcg.io/base1/10_hires.png'
-        };
-        return baseImages[pokemon] || `https://images.pokemontcg.io/${setCode}/${number}_hires.png`;
-    } else if (setName === 'XY Evolutions') {
-        const evolutionsImages = {
-            'charizard': 'https://images.pokemontcg.io/xy12/12_hires.png',
-            'pikachu': 'https://images.pokemontcg.io/xy12/20_hires.png',
-            'blastoise': 'https://images.pokemontcg.io/xy12/2_hires.png',
-            'venusaur': 'https://images.pokemontcg.io/xy12/1_hires.png',
-            'mewtwo': 'https://images.pokemontcg.io/xy12/52_hires.png'
-        };
-        return evolutionsImages[pokemon] || `https://images.pokemontcg.io/${setCode}/${number}_hires.png`;
-    } else {
-        // Pro ostatní sety použij generický obrázek
-        return `https://images.pokemontcg.io/${setCode}/${number}_hires.png`;
-    }
-}
+// Mock funkce odstraněny - nyní používáme skutečné scrapování
 
 function parsePriceChartingHTML(html, pokemonName, grade) {
     try {
         console.log('Parsing PriceCharting HTML for:', pokemonName);
         
-        // Extrahuj základní informace o kartě
-        const cardInfo = extractCardInfo(html, pokemonName);
+        const cardVariants = [];
         
-        // Extrahuj všechny PSA ceny
-        const prices = extractAllPSAPrices(html);
+        // Najdi všechny výsledky vyhledávání
+        const searchResults = extractSearchResults(html, pokemonName);
         
-        // Extrahuj historické ceny pro graf
-        const priceHistory = extractPriceHistory(html);
+        // Pro každý výsledek extrahuj data
+        searchResults.forEach((result, index) => {
+            const cardData = {
+                id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}_${index}`,
+                name: result.name || pokemonName,
+                setName: result.setName || 'Unknown Set',
+                number: result.number || '?',
+                imageUrl: result.imageUrl || `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
+                prices: result.prices || [],
+                priceHistory: extractPriceHistory(html),
+                source: 'PriceCharting'
+            };
+            
+            cardVariants.push(cardData);
+        });
         
-        // Vytvoř kompletní data karty
-        const cardData = {
-            id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
-            name: cardInfo.name || pokemonName,
-            setName: cardInfo.setName || 'Pokemon Base Set',
-            number: cardInfo.number || '4',
-            imageUrl: cardInfo.imageUrl || `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
-            prices: prices,
-            priceHistory: priceHistory,
-            source: 'PriceCharting'
-        };
-
-        console.log('Complete card data:', cardData);
-        return cardData;
+        console.log('Parsed card variants:', cardVariants);
+        return cardVariants;
     } catch (error) {
         console.error('Parsing error:', error);
-        return {
-            id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
-            name: pokemonName,
-            setName: 'Pokemon Base Set',
-            number: '4',
-            imageUrl: `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
-            prices: [],
-            priceHistory: [],
-            source: 'PriceCharting'
-        };
+        return [];
     }
+}
+
+function extractSearchResults(html, pokemonName) {
+    const results = [];
+    
+    try {
+        // Hledej výsledky vyhledávání v HTML
+        const resultPattern = /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+        const matches = [...html.matchAll(resultPattern)];
+        
+        matches.forEach(match => {
+            const resultHtml = match[1];
+            const cardInfo = extractCardInfoFromResult(resultHtml, pokemonName);
+            if (cardInfo) {
+                results.push(cardInfo);
+            }
+        });
+        
+        // Pokud nenajdeme strukturované výsledky, zkusíme obecné parsování
+        if (results.length === 0) {
+            console.log('No structured results found, trying general parsing');
+            const generalResult = extractGeneralCardInfo(html, pokemonName);
+            if (generalResult) {
+                results.push(generalResult);
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error extracting search results:', error);
+    }
+    
+    return results;
+}
+
+function extractCardInfoFromResult(resultHtml, pokemonName) {
+    try {
+        const cardInfo = {};
+        
+        // Extrahuj název karty
+        const nameMatch = resultHtml.match(/<h3[^>]*>([^<]+)<\/h3>/i) || 
+                         resultHtml.match(/<a[^>]*>([^<]*${pokemonName}[^<]*)<\/a>/i);
+        if (nameMatch) {
+            cardInfo.name = nameMatch[1].trim();
+        }
+        
+        // Extrahuj název setu
+        const setNameMatch = resultHtml.match(/Pokemon\s+([^|]+)/i) ||
+                            resultHtml.match(/Set:\s*([^<]+)/i);
+        if (setNameMatch) {
+            cardInfo.setName = setNameMatch[1].trim();
+        }
+        
+        // Extrahuj číslo karty
+        const numberMatch = resultHtml.match(/#(\d+)/i);
+        if (numberMatch) {
+            cardInfo.number = numberMatch[1];
+        }
+        
+        // Extrahuj obrázek
+        const imageMatch = resultHtml.match(/<img[^>]*src="([^"]*)"[^>]*alt="[^"]*"/i);
+        if (imageMatch) {
+            cardInfo.imageUrl = imageMatch[1];
+        }
+        
+        // Extrahuj ceny
+        cardInfo.prices = extractPricesFromResult(resultHtml);
+        
+        return cardInfo.name ? cardInfo : null;
+    } catch (error) {
+        console.error('Error extracting card info from result:', error);
+        return null;
+    }
+}
+
+function extractGeneralCardInfo(html, pokemonName) {
+    try {
+        const cardInfo = {};
+        
+        // Extrahuj základní informace z celého HTML
+        const nameMatch = html.match(/<h1[^>]*>([^<]*${pokemonName}[^<]*)<\/h1>/i);
+        if (nameMatch) {
+            cardInfo.name = nameMatch[1].trim();
+        }
+        
+        const setNameMatch = html.match(/Pokemon\s+([^|]+)/i);
+        if (setNameMatch) {
+            cardInfo.setName = setNameMatch[1].trim();
+        }
+        
+        const numberMatch = html.match(/#(\d+)/i);
+        if (numberMatch) {
+            cardInfo.number = numberMatch[1];
+        }
+        
+        const imageMatch = html.match(/<img[^>]*src="([^"]*)"[^>]*alt="[^"]*card[^"]*"/i);
+        if (imageMatch) {
+            cardInfo.imageUrl = imageMatch[1];
+        }
+        
+        cardInfo.prices = extractAllPSAPrices(html);
+        
+        return cardInfo.name ? cardInfo : null;
+    } catch (error) {
+        console.error('Error extracting general card info:', error);
+        return null;
+    }
+}
+
+function extractPricesFromResult(resultHtml) {
+    const prices = [];
+    
+    try {
+        // Hledej ceny v HTML výsledku
+        const pricePatterns = [
+            /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*7[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*6[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*4[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /PSA\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Ungraded[^$]*\$([0-9,]+\.?[0-9]*)/gi
+        ];
+        
+        const gradeMap = {
+            0: 'PSA10', 1: 'PSA9', 2: 'PSA8', 3: 'PSA7', 4: 'PSA6',
+            5: 'PSA5', 6: 'PSA4', 7: 'PSA3', 8: 'PSA2', 9: 'PSA1', 10: 'PSA0'
+        };
+        
+        pricePatterns.forEach((pattern, index) => {
+            const matches = [...resultHtml.matchAll(pattern)];
+            matches.forEach(match => {
+                const price = parseFloat(match[1].replace(',', ''));
+                if (price > 0 && price < 100000) {
+                    const grade = gradeMap[index] || 'PSA0';
+                    prices.push({
+                        grade: grade,
+                        price: price,
+                        source: 'PriceCharting',
+                        type: grade === 'PSA0' ? 'Neohodnoceno' : `PSA ${grade.replace('PSA', '')}`
+                    });
+                }
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error extracting prices from result:', error);
+    }
+    
+    return prices;
 }
 
 function extractCardInfo(html, pokemonName) {
