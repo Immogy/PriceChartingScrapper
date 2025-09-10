@@ -73,13 +73,14 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
         // PriceCharting má jiný formát - hledáme ceny v tabulkách
         console.log('Parsing PriceCharting HTML for:', pokemonName);
         
-        // Hledáme PSA ceny v různých formátech
+        // Hledáme PSA ceny v různých formátech - lepší patterns
         const psaPatterns = {
-            // PSA 10 - různé formáty
+            // PSA 10 - specifické patterns pro PriceCharting
             psa10: [
                 /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
                 /Grade\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-                /10[^$]*\$([0-9,]+\.?[0-9]*)/gi
+                /10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi
             ],
             // PSA 9
             psa9: [
@@ -102,19 +103,26 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
             /Price:\s*\$([0-9,]+\.?[0-9]*)/gi
         ];
 
-        // Extrahuj PSA ceny
+        // Extrahuj PSA ceny s lepším filtrováním
         Object.keys(psaPatterns).forEach(gradeKey => {
             const gradePatterns = psaPatterns[gradeKey];
+            const gradeNumber = gradeKey.slice(-1);
+            const seenPrices = new Set(); // Zabránit duplicitám
+            
             gradePatterns.forEach(pattern => {
                 const matches = [...html.matchAll(pattern)];
                 matches.forEach(match => {
                     const price = parseFloat(match[1].replace(',', ''));
-                    if (price > 0 && price < 50000) { // Filtruj rozumné ceny
+                    const priceKey = `${gradeKey}_${price}`;
+                    
+                    // Filtruj rozumné ceny a duplicity
+                    if (price > 1 && price < 10000 && !seenPrices.has(priceKey)) {
+                        seenPrices.add(priceKey);
                         prices.push({
                             grade: gradeKey.toUpperCase(),
                             price: price,
                             source: 'PriceCharting',
-                            type: `PSA ${gradeKey.slice(-1)}`
+                            type: `PSA ${gradeNumber}`
                         });
                     }
                 });
@@ -140,8 +148,19 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
             });
         }
 
-        console.log('Extracted prices:', prices);
-        return prices;
+        // Omezení na maximálně 5 cen per grade
+        const limitedPrices = [];
+        const gradeCounts = { PSA10: 0, PSA9: 0, PSA8: 0 };
+        
+        prices.forEach(price => {
+            if (gradeCounts[price.grade] < 5) {
+                limitedPrices.push(price);
+                gradeCounts[price.grade]++;
+            }
+        });
+        
+        console.log('Extracted prices (limited):', limitedPrices);
+        return limitedPrices;
     } catch (error) {
         console.error('Parsing error:', error);
         return [];
