@@ -79,8 +79,7 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
             psa10: [
                 /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
                 /Grade\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-                /10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-                /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi
+                /10[^$]*\$([0-9,]+\.?[0-9]*)/gi
             ],
             // PSA 9
             psa9: [
@@ -93,6 +92,13 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
                 /PSA\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
                 /Grade\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
                 /8[^$]*\$([0-9,]+\.?[0-9]*)/gi
+            ],
+            // PSA 0 - Neohodnocené karty
+            psa0: [
+                /PSA\s*0[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /Grade\s*0[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /Ungraded[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /Unrated[^$]*\$([0-9,]+\.?[0-9]*)/gi
             ]
         };
         
@@ -122,7 +128,7 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
                             grade: gradeKey.toUpperCase(),
                             price: price,
                             source: 'PriceCharting',
-                            type: `PSA ${gradeNumber}`
+                            type: gradeNumber === '0' ? 'Neohodnocené' : `PSA ${gradeNumber}`
                         });
                     }
                 });
@@ -150,7 +156,7 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
 
         // Omezení na maximálně 5 cen per grade
         const limitedPrices = [];
-        const gradeCounts = { PSA10: 0, PSA9: 0, PSA8: 0 };
+        const gradeCounts = { PSA10: 0, PSA9: 0, PSA8: 0, PSA0: 0 };
         
         prices.forEach(price => {
             if (gradeCounts[price.grade] < 5) {
