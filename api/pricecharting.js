@@ -21,18 +21,18 @@ export default async function handler(req, res) {
     }
 
     try {
-        const prices = await scrapePriceCharting(pokemon, grade);
+        const cardData = await scrapePriceCharting(pokemon, grade);
         res.status(200).json({ 
             success: true, 
             pokemon, 
             grade: grade || 'all',
-            prices 
+            card: cardData
         });
     } catch (error) {
         console.error('Scraping error:', error);
         res.status(500).json({ 
             success: false, 
-            error: 'Failed to scrape prices',
+            error: 'Failed to scrape card data',
             details: error.message 
         });
     }
@@ -128,7 +128,7 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
                             grade: gradeKey.toUpperCase(),
                             price: price,
                             source: 'PriceCharting',
-                            type: gradeNumber === '0' ? 'Neohodnocené' : `PSA ${gradeNumber}`
+                            type: gradeNumber === '0' ? 'Neohodnoceno' : `PSA ${gradeNumber}`
                         });
                     }
                 });
@@ -165,8 +165,19 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
             }
         });
         
-        console.log('Extracted prices (limited):', limitedPrices);
-        return limitedPrices;
+        // Vytvoř kompletní data karty s cenami
+        const cardData = {
+            id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
+            name: pokemonName,
+            setName: 'PriceCharting',
+            number: '?',
+            imageUrl: `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
+            prices: limitedPrices,
+            source: 'PriceCharting'
+        };
+
+        console.log('Card data with prices:', cardData);
+        return cardData;
     } catch (error) {
         console.error('Parsing error:', error);
         return [];
