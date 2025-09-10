@@ -43,24 +43,75 @@ async function scrapePriceCharting(pokemonName, grade = 'all') {
     console.log('Generating mock data for:', pokemonName);
     
     try {
-        // Vytvoř realistická mock data pro testování
-        const mockCardData = {
-            id: `pricecharting_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
-            name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
-            setName: 'Pokemon Base Set',
-            number: getCardNumber(pokemonName),
-            imageUrl: getCardImageUrl(pokemonName),
-            prices: generateMockPrices(pokemonName),
-            priceHistory: generateMockPriceHistory(),
-            source: 'PriceCharting'
-        };
-
-        console.log('Mock card data:', mockCardData);
-        return mockCardData;
+        // Vytvoř více verzí karty pro stejného Pokémona
+        const cardVariants = generateCardVariants(pokemonName);
+        
+        console.log('Mock card variants:', cardVariants);
+        return cardVariants;
     } catch (error) {
         console.error('Mock data generation error:', error);
         throw error;
     }
+}
+
+function generateCardVariants(pokemonName) {
+    const pokemon = pokemonName.toLowerCase();
+    const variants = [];
+    
+    // Definuj různé sety a verze pro populární Pokémon
+    const cardVariants = {
+        'charizard': [
+            { setName: 'Base Set', number: '4', rarity: 'Rare Holo', year: '1999' },
+            { setName: 'Base Set 2', number: '4', rarity: 'Rare Holo', year: '2000' },
+            { setName: 'Legendary Collection', number: '4', rarity: 'Rare Holo', year: '2002' },
+            { setName: 'XY Evolutions', number: '12', rarity: 'Rare Holo', year: '2016' },
+            { setName: 'Champion\'s Path', number: '074', rarity: 'Rare Holo VMAX', year: '2020' }
+        ],
+        'pikachu': [
+            { setName: 'Base Set', number: '58', rarity: 'Common', year: '1999' },
+            { setName: 'Jungle', number: '60', rarity: 'Common', year: '1999' },
+            { setName: 'Fossil', number: '58', rarity: 'Common', year: '1999' },
+            { setName: 'Base Set 2', number: '58', rarity: 'Common', year: '2000' },
+            { setName: 'XY Evolutions', number: '20', rarity: 'Common', year: '2016' }
+        ],
+        'blastoise': [
+            { setName: 'Base Set', number: '2', rarity: 'Rare Holo', year: '1999' },
+            { setName: 'Base Set 2', number: '2', rarity: 'Rare Holo', year: '2000' },
+            { setName: 'Legendary Collection', number: '2', rarity: 'Rare Holo', year: '2002' },
+            { setName: 'XY Evolutions', number: '2', rarity: 'Rare Holo', year: '2016' }
+        ],
+        'venusaur': [
+            { setName: 'Base Set', number: '15', rarity: 'Rare Holo', year: '1999' },
+            { setName: 'Base Set 2', number: '15', rarity: 'Rare Holo', year: '2000' },
+            { setName: 'Legendary Collection', number: '15', rarity: 'Rare Holo', year: '2002' },
+            { setName: 'XY Evolutions', number: '1', rarity: 'Rare Holo', year: '2016' }
+        ],
+        'mewtwo': [
+            { setName: 'Base Set', number: '10', rarity: 'Rare Holo', year: '1999' },
+            { setName: 'Base Set 2', number: '10', rarity: 'Rare Holo', year: '2000' },
+            { setName: 'Legendary Collection', number: '10', rarity: 'Rare Holo', year: '2002' },
+            { setName: 'XY Evolutions', number: '52', rarity: 'Rare Holo', year: '2016' }
+        ]
+    };
+    
+    const pokemonVariants = cardVariants[pokemon] || cardVariants['pikachu'];
+    
+    pokemonVariants.forEach((variant, index) => {
+        variants.push({
+            id: `pricecharting_${pokemon}_${variant.setName.toLowerCase().replace(/\s+/g, '_')}_${variant.number}`,
+            name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
+            setName: variant.setName,
+            number: variant.number,
+            rarity: variant.rarity,
+            year: variant.year,
+            imageUrl: getCardImageUrl(pokemon, variant.setName, variant.number),
+            prices: generateMockPrices(pokemon, variant.rarity),
+            priceHistory: generateMockPriceHistory(),
+            source: 'PriceCharting'
+        });
+    });
+    
+    return variants;
 }
 
 function generateMockPrices(pokemonName) {
