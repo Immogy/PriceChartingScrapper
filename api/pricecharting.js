@@ -118,27 +118,38 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
 function findCardMatches(html, pokemonName) {
     const matches = [];
     
+    console.log('Searching for Pokemon:', pokemonName);
+    
     // Hledej různé patterns pro karty
     const patterns = [
         // Pattern pro výsledky vyhledávání
         /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         /<div[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         /<div[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+        /<div[^>]*class="[^"]*item[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         // Pattern pro jednotlivé karty
         /<div[^>]*class="[^"]*card[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         // Pattern pro odkazy na karty
-        /<a[^>]*href="[^"]*pokemon[^"]*"[^>]*>([\s\S]*?)<\/a>/gi
+        /<a[^>]*href="[^"]*pokemon[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+        // Pattern pro tabulky s kartami
+        /<tr[^>]*>([\s\S]*?)<\/tr>/gi,
+        // Pattern pro listy karet
+        /<li[^>]*>([\s\S]*?)<\/li>/gi
     ];
     
-    patterns.forEach(pattern => {
+    patterns.forEach((pattern, patternIndex) => {
         const patternMatches = [...html.matchAll(pattern)];
+        console.log(`Pattern ${patternIndex} found ${patternMatches.length} matches`);
+        
         patternMatches.forEach(match => {
             if (match[1] && match[1].toLowerCase().includes(pokemonName.toLowerCase())) {
+                console.log(`Found match for ${pokemonName}:`, match[1].substring(0, 100));
                 matches.push(match[1]);
             }
         });
     });
     
+    console.log(`Total matches found: ${matches.length}`);
     return matches;
 }
 
@@ -149,25 +160,64 @@ function extractCardFromMatch(matchHtml, pokemonName, index) {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
             setName: 'Unknown Set',
             number: '?',
-            imageUrl: `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
+            imageUrl: `https://picsum.photos/200/280?random=${index}`,
             prices: [],
             priceHistory: [],
             source: 'PriceCharting'
         };
         
-        // Extrahuj název setu
-        const setNameMatch = matchHtml.match(/Pokemon\s+([^|]+)/i) ||
-                            matchHtml.match(/Base\s+Set/i) ||
-                            matchHtml.match(/Jungle/i) ||
-                            matchHtml.match(/Fossil/i);
-        if (setNameMatch) {
-            cardData.setName = setNameMatch[1] || setNameMatch[0];
+        // Extrahuj název setu - rozšířené patterns
+        const setNamePatterns = [
+            /Pokemon\s+([^|]+)/i,
+            /Base\s+Set/i,
+            /Jungle/i,
+            /Fossil/i,
+            /Team\s+Rocket/i,
+            /Gym\s+Challenge/i,
+            /Gym\s+Heroes/i,
+            /Neo\s+Genesis/i,
+            /Neo\s+Discovery/i,
+            /Neo\s+Revelation/i,
+            /Neo\s+Destiny/i,
+            /Expedition/i,
+            /Aquapolis/i,
+            /Skyridge/i,
+            /Ruby\s+&amp;\s+Sapphire/i,
+            /Diamond\s+&amp;\s+Pearl/i,
+            /Platinum/i,
+            /HeartGold\s+&amp;\s+SoulSilver/i,
+            /Black\s+&amp;\s+White/i,
+            /XY/i,
+            /Sun\s+&amp;\s+Moon/i,
+            /Sword\s+&amp;\s+Shield/i,
+            /Brilliant\s+Stars/i,
+            /Astral\s+Radiance/i,
+            /Lost\s+Origin/i,
+            /Silver\s+Tempest/i
+        ];
+        
+        for (const pattern of setNamePatterns) {
+            const setNameMatch = matchHtml.match(pattern);
+            if (setNameMatch) {
+                cardData.setName = setNameMatch[1] ? setNameMatch[1].trim() : setNameMatch[0];
+                break;
+            }
         }
         
-        // Extrahuj číslo karty
-        const numberMatch = matchHtml.match(/#(\d+)/i);
-        if (numberMatch) {
-            cardData.number = numberMatch[1];
+        // Extrahuj číslo karty - rozšířené patterns
+        const numberPatterns = [
+            /#(\d+)/i,
+            /No\.\s*(\d+)/i,
+            /Number\s*(\d+)/i,
+            /Card\s*(\d+)/i
+        ];
+        
+        for (const pattern of numberPatterns) {
+            const numberMatch = matchHtml.match(pattern);
+            if (numberMatch) {
+                cardData.number = numberMatch[1];
+                break;
+            }
         }
         
         // Extrahuj obrázek
@@ -193,7 +243,7 @@ function extractGeneralCard(html, pokemonName) {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
             setName: 'Unknown Set',
             number: '?',
-            imageUrl: `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
+            imageUrl: `https://picsum.photos/200/280?random=${index}`,
             prices: [],
             priceHistory: [],
             source: 'PriceCharting'
@@ -213,9 +263,11 @@ function extractRealPrices(html) {
     const prices = [];
     
     try {
-        // Hledej skutečné ceny v HTML
+        console.log('Extracting real prices from HTML...');
+        
+        // Hledej skutečné ceny v HTML - rozšířené patterns
         const pricePatterns = [
-            // PSA ceny
+            // PSA ceny s různými formáty
             /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             /PSA\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             /PSA\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
@@ -227,13 +279,26 @@ function extractRealPrices(html) {
             /PSA\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             /PSA\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             /Ungraded[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            // Grade ceny
+            /Grade\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*7[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*6[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*4[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /Grade\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             // Obecné ceny
             /\$([0-9,]+\.?[0-9]*)/g
         ];
         
         const gradeMap = {
             0: 'PSA10', 1: 'PSA9', 2: 'PSA8', 3: 'PSA7', 4: 'PSA6',
-            5: 'PSA5', 6: 'PSA4', 7: 'PSA3', 8: 'PSA2', 9: 'PSA1', 10: 'PSA0'
+            5: 'PSA5', 6: 'PSA4', 7: 'PSA3', 8: 'PSA2', 9: 'PSA1', 10: 'PSA0',
+            11: 'PSA10', 12: 'PSA9', 13: 'PSA8', 14: 'PSA7', 15: 'PSA6',
+            16: 'PSA5', 17: 'PSA4', 18: 'PSA3', 19: 'PSA2', 20: 'PSA1'
         };
         
         pricePatterns.forEach((pattern, index) => {
@@ -252,7 +317,7 @@ function extractRealPrices(html) {
             });
         });
         
-        // Odstraň duplicity
+        // Odstraň duplicity a seřaď podle PSA stupně
         const uniquePrices = [];
         const seenGrades = new Set();
         
@@ -261,6 +326,13 @@ function extractRealPrices(html) {
                 seenGrades.add(price.grade);
                 uniquePrices.push(price);
             }
+        });
+        
+        // Seřaď podle PSA stupně (10, 9, 8, ..., 1, 0)
+        uniquePrices.sort((a, b) => {
+            const gradeA = parseInt(a.grade.replace('PSA', ''));
+            const gradeB = parseInt(b.grade.replace('PSA', ''));
+            return gradeB - gradeA;
         });
         
         console.log('Extracted real prices:', uniquePrices);
