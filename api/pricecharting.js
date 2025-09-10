@@ -110,6 +110,28 @@ function generateMockPriceHistory() {
     ];
 }
 
+function getCardNumber(pokemonName) {
+    const cardNumbers = {
+        'charizard': '4',
+        'pikachu': '58',
+        'blastoise': '2',
+        'venusaur': '15',
+        'mewtwo': '10'
+    };
+    return cardNumbers[pokemonName.toLowerCase()] || '?';
+}
+
+function getCardImageUrl(pokemonName) {
+    const cardImages = {
+        'charizard': 'https://images.pokemontcg.io/base1/4_hires.png',
+        'pikachu': 'https://images.pokemontcg.io/base1/58_hires.png',
+        'blastoise': 'https://images.pokemontcg.io/base1/2_hires.png',
+        'venusaur': 'https://images.pokemontcg.io/base1/15_hires.png',
+        'mewtwo': 'https://images.pokemontcg.io/base1/10_hires.png'
+    };
+    return cardImages[pokemonName.toLowerCase()] || `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`;
+}
+
 function parsePriceChartingHTML(html, pokemonName, grade) {
     try {
         console.log('Parsing PriceCharting HTML for:', pokemonName);
