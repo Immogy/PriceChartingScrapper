@@ -70,95 +70,77 @@ function parsePriceChartingHTML(html, pokemonName, grade) {
     const prices = [];
     
     try {
-        // Regex patterns pro různé typy cen
-        const patterns = {
-            // PSA grades
-            psa10: /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa9: /PSA\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa8: /PSA\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa7: /PSA\s*7[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa6: /PSA\s*6[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa5: /PSA\s*5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa4: /PSA\s*4[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa3: /PSA\s*3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa2: /PSA\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            psa1: /PSA\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            
-            // Obecné ceny
-            loose: /\$([0-9,]+\.?[0-9]*)\s*loose/gi,
-            complete: /\$([0-9,]+\.?[0-9]*)\s*complete/gi,
-            new: /\$([0-9,]+\.?[0-9]*)\s*new/gi,
-            used: /\$([0-9,]+\.?[0-9]*)\s*used/gi
+        // PriceCharting má jiný formát - hledáme ceny v tabulkách
+        console.log('Parsing PriceCharting HTML for:', pokemonName);
+        
+        // Hledáme PSA ceny v různých formátech
+        const psaPatterns = {
+            // PSA 10 - různé formáty
+            psa10: [
+                /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /Grade\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /10[^$]*\$([0-9,]+\.?[0-9]*)/gi
+            ],
+            // PSA 9
+            psa9: [
+                /PSA\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /Grade\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /9[^$]*\$([0-9,]+\.?[0-9]*)/gi
+            ],
+            // PSA 8
+            psa8: [
+                /PSA\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /Grade\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+                /8[^$]*\$([0-9,]+\.?[0-9]*)/gi
+            ]
         };
+        
+        // Obecné ceny
+        const generalPatterns = [
+            /\$([0-9,]+\.?[0-9]*)/g,
+            /([0-9,]+\.?[0-9]*)\s*USD/g,
+            /Price:\s*\$([0-9,]+\.?[0-9]*)/gi
+        ];
 
-        // Extrahuj ceny podle grade
-        if (grade === 'all' || grade === 'PSA10') {
-            const psa10Matches = [...html.matchAll(patterns.psa10)];
-            psa10Matches.forEach(match => {
-                prices.push({
-                    grade: 'PSA10',
-                    price: parseFloat(match[1].replace(',', '')),
-                    source: 'PriceCharting',
-                    type: 'PSA 10'
+        // Extrahuj PSA ceny
+        Object.keys(psaPatterns).forEach(gradeKey => {
+            const gradePatterns = psaPatterns[gradeKey];
+            gradePatterns.forEach(pattern => {
+                const matches = [...html.matchAll(pattern)];
+                matches.forEach(match => {
+                    const price = parseFloat(match[1].replace(',', ''));
+                    if (price > 0 && price < 50000) { // Filtruj rozumné ceny
+                        prices.push({
+                            grade: gradeKey.toUpperCase(),
+                            price: price,
+                            source: 'PriceCharting',
+                            type: `PSA ${gradeKey.slice(-1)}`
+                        });
+                    }
                 });
             });
-        }
-
-        if (grade === 'all' || grade === 'PSA9') {
-            const psa9Matches = [...html.matchAll(patterns.psa9)];
-            psa9Matches.forEach(match => {
-                prices.push({
-                    grade: 'PSA9',
-                    price: parseFloat(match[1].replace(',', '')),
-                    source: 'PriceCharting',
-                    type: 'PSA 9'
-                });
-            });
-        }
-
-        if (grade === 'all' || grade === 'PSA8') {
-            const psa8Matches = [...html.matchAll(patterns.psa8)];
-            psa8Matches.forEach(match => {
-                prices.push({
-                    grade: 'PSA8',
-                    price: parseFloat(match[1].replace(',', '')),
-                    source: 'PriceCharting',
-                    type: 'PSA 8'
-                });
-            });
-        }
-
-        // Přidej obecné ceny pokud nejsou PSA grades
-        if (grade === 'all') {
-            const looseMatches = [...html.matchAll(patterns.loose)];
-            looseMatches.forEach(match => {
-                prices.push({
-                    grade: 'LOOSE',
-                    price: parseFloat(match[1].replace(',', '')),
-                    source: 'PriceCharting',
-                    type: 'Loose'
-                });
-            });
-        }
+        });
 
         // Pokud nenajdeme PSA ceny, zkusíme obecné ceny
         if (prices.length === 0) {
-            const generalPricePattern = /\$([0-9,]+\.?[0-9]*)/g;
-            const generalMatches = [...html.matchAll(generalPricePattern)];
-            
-            generalMatches.slice(0, 5).forEach(match => {
-                const price = parseFloat(match[1].replace(',', ''));
-                if (price > 0 && price < 10000) { // Filtruj rozumné ceny
-                    prices.push({
-                        grade: 'MARKET',
-                        price: price,
-                        source: 'PriceCharting',
-                        type: 'Market Price'
-                    });
-                }
+            console.log('No PSA prices found, trying general patterns');
+            generalPatterns.forEach(pattern => {
+                const matches = [...html.matchAll(pattern)];
+                matches.slice(0, 3).forEach(match => {
+                    const price = parseFloat(match[1].replace(',', ''));
+                    if (price > 0 && price < 10000) { // Filtruj rozumné ceny
+                        prices.push({
+                            grade: 'MARKET',
+                            price: price,
+                            source: 'PriceCharting',
+                            type: 'Market Price'
+                        });
+                    }
+                });
             });
         }
 
+        console.log('Extracted prices:', prices);
         return prices;
     } catch (error) {
         console.error('Parsing error:', error);
