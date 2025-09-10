@@ -21,12 +21,13 @@ export default async function handler(req, res) {
     }
 
     try {
-        const cardData = await scrapePriceCharting(pokemon, grade);
+        const cardVariants = await scrapePriceCharting(pokemon, grade);
         res.status(200).json({ 
             success: true, 
             pokemon, 
             grade: grade || 'all',
-            card: cardData
+            cards: cardVariants,
+            count: cardVariants.length
         });
     } catch (error) {
         console.error('Scraping error:', error);
@@ -114,33 +115,31 @@ function generateCardVariants(pokemonName) {
     return variants;
 }
 
-function generateMockPrices(pokemonName) {
-    // Realistické ceny pro populární Pokémon
+function generateMockPrices(pokemonName, rarity = 'Rare Holo') {
+    // Realistické ceny pro populární Pokémon s ohledem na raritu
     const basePrices = {
         'charizard': {
-            PSA10: 10276, PSA9: 2112, PSA8: 786, PSA7: 558, PSA6: 357,
-            PSA5: 320, PSA4: 250, PSA3: 248, PSA2: 184, PSA1: 232, PSA0: 228
+            'Rare Holo': { PSA10: 10276, PSA9: 2112, PSA8: 786, PSA7: 558, PSA6: 357, PSA5: 320, PSA4: 250, PSA3: 248, PSA2: 184, PSA1: 232, PSA0: 228 },
+            'Rare Holo VMAX': { PSA10: 15000, PSA9: 8000, PSA8: 4000, PSA7: 2500, PSA6: 1500, PSA5: 1000, PSA4: 800, PSA3: 600, PSA2: 400, PSA1: 300, PSA0: 500 }
         },
         'pikachu': {
-            PSA10: 500, PSA9: 200, PSA8: 100, PSA7: 75, PSA6: 50,
-            PSA5: 40, PSA4: 30, PSA3: 25, PSA2: 20, PSA1: 15, PSA0: 45
+            'Common': { PSA10: 200, PSA9: 100, PSA8: 50, PSA7: 30, PSA6: 20, PSA5: 15, PSA4: 10, PSA3: 8, PSA2: 5, PSA1: 3, PSA0: 8 },
+            'Rare Holo': { PSA10: 500, PSA9: 200, PSA8: 100, PSA7: 75, PSA6: 50, PSA5: 40, PSA4: 30, PSA3: 25, PSA2: 20, PSA1: 15, PSA0: 45 }
         },
         'blastoise': {
-            PSA10: 800, PSA9: 350, PSA8: 200, PSA7: 150, PSA6: 100,
-            PSA5: 80, PSA4: 60, PSA3: 45, PSA2: 35, PSA1: 25, PSA0: 70
+            'Rare Holo': { PSA10: 800, PSA9: 350, PSA8: 200, PSA7: 150, PSA6: 100, PSA5: 80, PSA4: 60, PSA3: 45, PSA2: 35, PSA1: 25, PSA0: 70 }
         },
         'venusaur': {
-            PSA10: 600, PSA9: 250, PSA8: 150, PSA7: 100, PSA6: 75,
-            PSA5: 60, PSA4: 45, PSA3: 35, PSA2: 25, PSA1: 20, PSA0: 55
+            'Rare Holo': { PSA10: 600, PSA9: 250, PSA8: 150, PSA7: 100, PSA6: 75, PSA5: 60, PSA4: 45, PSA3: 35, PSA2: 25, PSA1: 20, PSA0: 55 }
         },
         'mewtwo': {
-            PSA10: 1200, PSA9: 500, PSA8: 300, PSA7: 200, PSA6: 150,
-            PSA5: 120, PSA4: 90, PSA3: 70, PSA2: 50, PSA1: 40, PSA0: 100
+            'Rare Holo': { PSA10: 1200, PSA9: 500, PSA8: 300, PSA7: 200, PSA6: 150, PSA5: 120, PSA4: 90, PSA3: 70, PSA2: 50, PSA1: 40, PSA0: 100 }
         }
     };
 
     const pokemon = pokemonName.toLowerCase();
-    const prices = basePrices[pokemon] || basePrices['pikachu']; // fallback na Pikachu
+    const pokemonPrices = basePrices[pokemon] || basePrices['pikachu'];
+    const prices = pokemonPrices[rarity] || pokemonPrices['Rare Holo'] || pokemonPrices['Common'];
 
     return Object.entries(prices).map(([grade, price]) => ({
         grade: grade,
@@ -172,15 +171,45 @@ function getCardNumber(pokemonName) {
     return cardNumbers[pokemonName.toLowerCase()] || '?';
 }
 
-function getCardImageUrl(pokemonName) {
-    const cardImages = {
-        'charizard': 'https://images.pokemontcg.io/base1/4_hires.png',
-        'pikachu': 'https://images.pokemontcg.io/base1/58_hires.png',
-        'blastoise': 'https://images.pokemontcg.io/base1/2_hires.png',
-        'venusaur': 'https://images.pokemontcg.io/base1/15_hires.png',
-        'mewtwo': 'https://images.pokemontcg.io/base1/10_hires.png'
+function getCardImageUrl(pokemonName, setName = 'Base Set', number = '4') {
+    const pokemon = pokemonName.toLowerCase();
+    
+    // Mapování setů na kódy
+    const setCodes = {
+        'Base Set': 'base1',
+        'Base Set 2': 'base2',
+        'Legendary Collection': 'base3',
+        'XY Evolutions': 'xy12',
+        'Champion\'s Path': 'swsh4',
+        'Jungle': 'base4',
+        'Fossil': 'base5'
     };
-    return cardImages[pokemonName.toLowerCase()] || `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`;
+    
+    const setCode = setCodes[setName] || 'base1';
+    
+    // Pro různé sety použij různé obrázky
+    if (setName === 'Base Set') {
+        const baseImages = {
+            'charizard': 'https://images.pokemontcg.io/base1/4_hires.png',
+            'pikachu': 'https://images.pokemontcg.io/base1/58_hires.png',
+            'blastoise': 'https://images.pokemontcg.io/base1/2_hires.png',
+            'venusaur': 'https://images.pokemontcg.io/base1/15_hires.png',
+            'mewtwo': 'https://images.pokemontcg.io/base1/10_hires.png'
+        };
+        return baseImages[pokemon] || `https://images.pokemontcg.io/${setCode}/${number}_hires.png`;
+    } else if (setName === 'XY Evolutions') {
+        const evolutionsImages = {
+            'charizard': 'https://images.pokemontcg.io/xy12/12_hires.png',
+            'pikachu': 'https://images.pokemontcg.io/xy12/20_hires.png',
+            'blastoise': 'https://images.pokemontcg.io/xy12/2_hires.png',
+            'venusaur': 'https://images.pokemontcg.io/xy12/1_hires.png',
+            'mewtwo': 'https://images.pokemontcg.io/xy12/52_hires.png'
+        };
+        return evolutionsImages[pokemon] || `https://images.pokemontcg.io/${setCode}/${number}_hires.png`;
+    } else {
+        // Pro ostatní sety použij generický obrázek
+        return `https://images.pokemontcg.io/${setCode}/${number}_hires.png`;
+    }
 }
 
 function parsePriceChartingHTML(html, pokemonName, grade) {
