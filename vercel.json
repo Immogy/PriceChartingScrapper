@@ -1,4 +1,17 @@
 {
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/pricecharting.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/pricecharting",
+      "dest": "/api/pricecharting.js"
+    }
+  ],
   "functions": {
     "api/pricecharting.js": {
       "maxDuration": 30
