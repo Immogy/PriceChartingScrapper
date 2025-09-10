@@ -111,19 +111,36 @@ function extractSearchResults(html, pokemonName) {
     const results = [];
     
     try {
-        // Hledej výsledky vyhledávání v HTML
-        const resultPattern = /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
-        const matches = [...html.matchAll(resultPattern)];
+        console.log('HTML length:', html.length);
+        console.log('Looking for Pokemon:', pokemonName);
         
-        matches.forEach(match => {
-            const resultHtml = match[1];
-            const cardInfo = extractCardInfoFromResult(resultHtml, pokemonName);
-            if (cardInfo) {
-                results.push(cardInfo);
+        // Zkus různé patterns pro výsledky vyhledávání
+        const patterns = [
+            /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+            /<div[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+            /<div[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+            /<div[^>]*class="[^"]*card[^"]*"[^>]*>([\s\S]*?)<\/div>/gi
+        ];
+        
+        for (const pattern of patterns) {
+            const matches = [...html.matchAll(pattern)];
+            console.log(`Pattern found ${matches.length} matches`);
+            
+            matches.forEach(match => {
+                const resultHtml = match[1];
+                const cardInfo = extractCardInfoFromResult(resultHtml, pokemonName);
+                if (cardInfo) {
+                    results.push(cardInfo);
+                }
+            });
+            
+            if (results.length > 0) {
+                console.log(`Found ${results.length} results with pattern`);
+                break;
             }
-        });
+        }
         
-        // Pokud nenajdeme strukturované výsledky, zkusíme obecné parsování
+        // Pokud stále nenajdeme výsledky, zkusíme obecné parsování
         if (results.length === 0) {
             console.log('No structured results found, trying general parsing');
             const generalResult = extractGeneralCardInfo(html, pokemonName);
@@ -132,47 +149,101 @@ function extractSearchResults(html, pokemonName) {
             }
         }
         
+        // Pokud stále nic, vytvoř fallback výsledek
+        if (results.length === 0) {
+            console.log('No results found, creating fallback');
+            results.push(createFallbackCard(pokemonName));
+        }
+        
     } catch (error) {
         console.error('Error extracting search results:', error);
+        // Vrať fallback v případě chyby
+        results.push(createFallbackCard(pokemonName));
     }
     
     return results;
+}
+
+function createFallbackCard(pokemonName) {
+    return {
+        name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
+        setName: 'Unknown Set',
+        number: '?',
+        imageUrl: `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
+        prices: []
+    };
 }
 
 function extractCardInfoFromResult(resultHtml, pokemonName) {
     try {
         const cardInfo = {};
         
-        // Extrahuj název karty
-        const nameMatch = resultHtml.match(/<h3[^>]*>([^<]+)<\/h3>/i) || 
-                         resultHtml.match(/<a[^>]*>([^<]*${pokemonName}[^<]*)<\/a>/i);
-        if (nameMatch) {
-            cardInfo.name = nameMatch[1].trim();
+        // Extrahuj název karty - zkus různé patterns
+        const namePatterns = [
+            /<h3[^>]*>([^<]+)<\/h3>/i,
+            /<h2[^>]*>([^<]+)<\/h2>/i,
+            /<h1[^>]*>([^<]+)<\/h1>/i,
+            /<a[^>]*>([^<]*${pokemonName}[^<]*)<\/a>/i,
+            /<span[^>]*>([^<]*${pokemonName}[^<]*)<\/span>/i,
+            /<div[^>]*>([^<]*${pokemonName}[^<]*)<\/div>/i
+        ];
+        
+        for (const pattern of namePatterns) {
+            const nameMatch = resultHtml.match(pattern);
+            if (nameMatch && nameMatch[1].toLowerCase().includes(pokemonName.toLowerCase())) {
+                cardInfo.name = nameMatch[1].trim();
+                break;
+            }
+        }
+        
+        // Pokud nenajdeme název, použij pokemonName
+        if (!cardInfo.name) {
+            cardInfo.name = pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1);
         }
         
         // Extrahuj název setu
-        const setNameMatch = resultHtml.match(/Pokemon\s+([^|]+)/i) ||
-                            resultHtml.match(/Set:\s*([^<]+)/i);
-        if (setNameMatch) {
-            cardInfo.setName = setNameMatch[1].trim();
+        const setNamePatterns = [
+            /Pokemon\s+([^|]+)/i,
+            /Set:\s*([^<]+)/i,
+            /Base\s+Set/i,
+            /Jungle/i,
+            /Fossil/i,
+            /Team\s+Rocket/i
+        ];
+        
+        for (const pattern of setNamePatterns) {
+            const setNameMatch = resultHtml.match(pattern);
+            if (setNameMatch) {
+                cardInfo.setName = setNameMatch[1] ? setNameMatch[1].trim() : setNameMatch[0];
+                break;
+            }
+        }
+        
+        if (!cardInfo.setName) {
+            cardInfo.setName = 'Unknown Set';
         }
         
         // Extrahuj číslo karty
         const numberMatch = resultHtml.match(/#(\d+)/i);
         if (numberMatch) {
             cardInfo.number = numberMatch[1];
+        } else {
+            cardInfo.number = '?';
         }
         
         // Extrahuj obrázek
         const imageMatch = resultHtml.match(/<img[^>]*src="([^"]*)"[^>]*alt="[^"]*"/i);
         if (imageMatch) {
             cardInfo.imageUrl = imageMatch[1];
+        } else {
+            cardInfo.imageUrl = `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(cardInfo.name)}`;
         }
         
         // Extrahuj ceny
         cardInfo.prices = extractPricesFromResult(resultHtml);
         
-        return cardInfo.name ? cardInfo : null;
+        console.log('Extracted card info:', cardInfo);
+        return cardInfo;
     } catch (error) {
         console.error('Error extracting card info from result:', error);
         return null;
@@ -184,29 +255,50 @@ function extractGeneralCardInfo(html, pokemonName) {
         const cardInfo = {};
         
         // Extrahuj základní informace z celého HTML
-        const nameMatch = html.match(/<h1[^>]*>([^<]*${pokemonName}[^<]*)<\/h1>/i);
-        if (nameMatch) {
-            cardInfo.name = nameMatch[1].trim();
+        const namePatterns = [
+            /<h1[^>]*>([^<]*${pokemonName}[^<]*)<\/h1>/i,
+            /<h2[^>]*>([^<]*${pokemonName}[^<]*)<\/h2>/i,
+            /<h3[^>]*>([^<]*${pokemonName}[^<]*)<\/h3>/i,
+            /<title[^>]*>([^<]*${pokemonName}[^<]*)<\/title>/i
+        ];
+        
+        for (const pattern of namePatterns) {
+            const nameMatch = html.match(pattern);
+            if (nameMatch) {
+                cardInfo.name = nameMatch[1].trim();
+                break;
+            }
+        }
+        
+        if (!cardInfo.name) {
+            cardInfo.name = pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1);
         }
         
         const setNameMatch = html.match(/Pokemon\s+([^|]+)/i);
         if (setNameMatch) {
             cardInfo.setName = setNameMatch[1].trim();
+        } else {
+            cardInfo.setName = 'Unknown Set';
         }
         
         const numberMatch = html.match(/#(\d+)/i);
         if (numberMatch) {
             cardInfo.number = numberMatch[1];
+        } else {
+            cardInfo.number = '?';
         }
         
         const imageMatch = html.match(/<img[^>]*src="([^"]*)"[^>]*alt="[^"]*card[^"]*"/i);
         if (imageMatch) {
             cardInfo.imageUrl = imageMatch[1];
+        } else {
+            cardInfo.imageUrl = `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(cardInfo.name)}`;
         }
         
         cardInfo.prices = extractAllPSAPrices(html);
         
-        return cardInfo.name ? cardInfo : null;
+        console.log('Extracted general card info:', cardInfo);
+        return cardInfo;
     } catch (error) {
         console.error('Error extracting general card info:', error);
         return null;
