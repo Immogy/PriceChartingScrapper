@@ -414,118 +414,93 @@ function extractGeneralCard(html, pokemonName) {
 }
 
 function extractRealPrices(html) {
-    const prices = [];
-    
     try {
         console.log('Extracting real prices from HTML...');
-        
-        // Hledej skutečné ceny v HTML - podle skutečné PriceCharting struktury
-        const pricePatterns = [
-            // Ungraded
-            /Ungraded[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // Grade 1-9.5
-            /Grade\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*4[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*6[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*7[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /Grade\s*9\.5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // SGC 10
-            /SGC\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // CGC 10
-            /CGC\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /CGC\s*10\s*Pristin[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // PSA 10
-            /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // BGS 10
-            /BGS\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /BGS\s*10\s*Black[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // Alternativní formáty
-            /PSA\s*9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*7[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*6[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*4[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            /PSA\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
-            // Obecné ceny
-            /\$([0-9,]+\.?[0-9]*)/g
-        ];
-        
-        const gradeMap = {
-            // Ungraded
-            0: 'PSA0',
-            // Grade patterns (1-9.5)
-            1: 'PSA1', 2: 'PSA2', 3: 'PSA3', 4: 'PSA4', 5: 'PSA5',
-            6: 'PSA6', 7: 'PSA7', 8: 'PSA8', 9: 'PSA9', 10: 'PSA9',
-            // SGC 10
-            11: 'PSA10',
-            // CGC 10
-            12: 'PSA10', 13: 'PSA10',
-            // PSA 10
-            14: 'PSA10',
-            // BGS 10
-            15: 'PSA10', 16: 'PSA10',
-            // PSA patterns (17-25)
-            17: 'PSA9', 18: 'PSA8', 19: 'PSA7', 20: 'PSA6', 21: 'PSA5',
-            22: 'PSA4', 23: 'PSA3', 24: 'PSA2', 25: 'PSA1',
-            // General prices (26+)
-            26: 'PSA0'
-        };
-        
-        pricePatterns.forEach((pattern, index) => {
-            const matches = [...html.matchAll(pattern)];
-            matches.forEach(match => {
-                const price = parseFloat(match[1].replace(',', ''));
-                if (price > 0 && price < 100000) {
-                    const grade = gradeMap[index] || 'PSA0';
-                    prices.push({
-                        grade: grade,
-                        price: Math.round(price * 100), // Převeď na centy
-                        source: 'PriceCharting',
-                        type: grade === 'PSA0' ? 'Neohodnoceno' : `PSA ${grade.replace('PSA', '')}`
-                    });
-                }
+
+        // 1) Najdi všechny labely grade a k nim nejbližší cenu
+        //   - páruj label -> $price v krátké vzdálenosti (±150 znaků)
+        const labelRegex = /(Ungraded|Unrated|Raw|Grade\s*\d+(?:\.5)?|PSA\s*\d+(?:\.5)?|BGS\s*10\s*Black\s*Label|BGS\s*10\s*Black|BGS\s*\d+(?:\.5)?|SGC\s*\d+(?:\.5)?|CGC\s*10\s*Pristine|CGC\s*Pristine\s*10|CGC\s*\d+(?:\.5)?)/gi;
+        const priceRegex = /\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/g;
+
+        // Mapuj všechny výskyty: grade -> list cen (v USD cent)
+        const gradeToCentsList = new Map();
+
+        let match;
+        while ((match = labelRegex.exec(html)) !== null) {
+            const rawLabel = match[0];
+            const startIdx = match.index;
+            const windowStart = Math.max(0, startIdx - 150);
+            const windowEnd = Math.min(html.length, startIdx + 300);
+            const window = html.slice(windowStart, windowEnd);
+
+            // Najdi první cenu v blízkosti labelu
+            priceRegex.lastIndex = 0;
+            const priceMatch = priceRegex.exec(window);
+            if (!priceMatch) continue;
+
+            const priceUsd = parseFloat(priceMatch[1].replace(/,/g, ''));
+            if (!(priceUsd > 0 && priceUsd < 100000)) continue;
+
+            const psaGrade = normalizeToPsaGrade(rawLabel);
+            if (!psaGrade) continue;
+
+            const list = gradeToCentsList.get(psaGrade) || [];
+            list.push(Math.round(priceUsd * 100));
+            gradeToCentsList.set(psaGrade, list);
+        }
+
+        // 2) Přepočítej na průměr (fallback na medián pokud by bylo třeba)
+        const prices = [];
+        gradeToCentsList.forEach((centsList, grade) => {
+            if (!centsList.length) return;
+            const avg = Math.round(centsList.reduce((a, b) => a + b, 0) / centsList.length);
+            prices.push({
+                grade,
+                price: avg,
+                source: 'PriceCharting',
+                type: grade === 'PSA0' ? 'Neohodnoceno' : `PSA ${grade.replace('PSA', '')}`
             });
         });
-        
-        // Žádné mock data - pouze skutečné ceny z PriceCharting
+
         if (prices.length === 0) {
             console.log('No real prices found from PriceCharting');
             return [];
         }
-        
-        // Odstraň duplicity a seřaď podle PSA stupně
-        const uniquePrices = [];
-        const seenGrades = new Set();
-        
-        prices.forEach(price => {
-            if (!seenGrades.has(price.grade)) {
-                seenGrades.add(price.grade);
-                uniquePrices.push(price);
-            }
-        });
-        
-        // Seřaď podle PSA stupně (10, 9, 8, ..., 1, 0)
-        uniquePrices.sort((a, b) => {
-            const gradeA = parseInt(a.grade.replace('PSA', ''));
-            const gradeB = parseInt(b.grade.replace('PSA', ''));
-            return gradeB - gradeA;
-        });
-        
-        console.log('Extracted real prices:', uniquePrices);
-        return uniquePrices;
-        
+
+        // 3) Seřaď podle PSA stupně (10, 9, ... 1, 0)
+        prices.sort((a, b) => parseInt(b.grade.slice(3)) - parseInt(a.grade.slice(3)));
+        console.log('Extracted real prices:', prices);
+        return prices;
     } catch (error) {
         console.error('Error extracting real prices:', error);
         return [];
     }
+}
+
+function normalizeToPsaGrade(rawLabel) {
+    const label = rawLabel.replace(/\s+/g, ' ').trim().toLowerCase();
+
+    // Ungraded / Raw
+    if (/(^|\s)(ungraded|unrated|raw)(\s|$)/.test(label)) return 'PSA0';
+
+    // Grade X / PSA X / SGC X / CGC X / BGS X (Black Label)
+    // Preferenčně mapovat 10 na PSA10, 9.5 -> PSA9 (uživatel chce PSA1-10 + PSA0)
+    const numMatch = label.match(/(grade|psa|sgc|cgc|bgs)\s*(10|9\.5|[1-9](?:\.5)?)/);
+    if (numMatch) {
+        const brand = numMatch[1];
+        const value = numMatch[2];
+
+        // Speciály
+        if (label.includes('bgs 10 black label') || label.includes('bgs 10 black')) return 'PSA10';
+        if (label.includes('cgc 10 pristine') || label.includes('pristine 10')) return 'PSA10';
+
+        if (value === '10') return 'PSA10';
+        if (value === '9.5') return 'PSA9';
+        const n = parseInt(value, 10);
+        if (n >= 1 && n <= 9) return `PSA${n}`;
+    }
+
+    return null;
 }
 
 // Funkce pro vytvoření základní karty s reálnými daty z Pokémon TCG API
