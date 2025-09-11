@@ -45,8 +45,11 @@ async function scrapePriceCharting(q) {
     for (let page = 1; page <= 3; page++) {
         const url = page === 1 ? searchBase : `${searchBase}&page=${page}`;
         const html = await fetchHtml(url, {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-            'Accept': 'text/html'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Referer': 'https://www.pricecharting.com/'
         });
         if (!html) break;
 
@@ -63,8 +66,11 @@ async function scrapePriceCharting(q) {
         const chunk = urls.slice(i, i + concurrency);
         const items = await Promise.all(chunk.map(async (detailUrl, idx) => {
             const html = await fetchHtml(detailUrl, {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-                'Accept': 'text/html'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Connection': 'keep-alive',
+                'Referer': 'https://www.pricecharting.com/'
             });
             if (!html) return null;
             const itm = parsePcDetail(html, detailUrl, q, i + idx);
