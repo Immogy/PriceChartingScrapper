@@ -1,4 +1,6 @@
 // Vercel API endpoint pro PriceCharting scraper - OPRAVENÁ VERZE
+module.exports.config = { runtime: 'nodejs18.x' };
+
 module.exports = async function handler(req, res) {
     // Povolit CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
