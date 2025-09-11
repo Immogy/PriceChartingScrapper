@@ -37,52 +37,120 @@ async function fetchHtml(url, headers) {
 
 // ===== PriceCharting =====
 async function scrapePriceCharting(q) {
-    const url = `https://www.pricecharting.com/search-products?q=${encodeURIComponent(q + ' pokemon card')}`;
-    const html = await fetchHtml(url, {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-        'Accept': 'text/html'
-    });
-    if (!html) return [];
+    const base = 'https://www.pricecharting.com';
+    const searchBase = `${base}/search-products?q=${encodeURIComponent(q + ' pokemon card')}`;
 
-    const items = [];
-    const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let m, idx = 0;
-    while ((m = rowRe.exec(html)) !== null && items.length < 60) {
-        const row = m[1];
-        if (!new RegExp(q, 'i').test(row)) continue;
+    // 1) Posbírej odkazy na detail karet z několika stránek výsledků
+    const detailLinks = new Set();
+    for (let page = 1; page <= 3; page++) {
+        const url = page === 1 ? searchBase : `${searchBase}&page=${page}`;
+        const html = await fetchHtml(url, {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+            'Accept': 'text/html'
+        });
+        if (!html) break;
 
-        const name = pick(row, /<a[^>]*>([^<]{3,150})<\/a>/i) || cap(q);
-        const setName = pick(row, /<td[^>]*class="[^"]*(?:set|series|expansion)[^"]*"[^>]*>([^<]+)<\/td>/i) || 'PriceCharting';
-        const number = pick(row, /(\d+)\s*\/\s*\d+/) || pick(row, /#\s*(\d+)/) || '?';
-        let imageUrl = pick(row, /<img[^>]*src="([^"]*\.(?:jpg|jpeg|png|webp))"/i) || '';
-        if (imageUrl && !/^https?:/i.test(imageUrl)) imageUrl = `https://www.pricecharting.com${imageUrl}`;
-        // Detail URL pro přesné ceny
-        let detailUrl = pick(row, /<a[^>]*href="([^"]+)"/i) || '';
-        if (detailUrl && !/^https?:/i.test(detailUrl)) detailUrl = `https://www.pricecharting.com${detailUrl}`;
-
-        const prices = collectPcGrades(row);
-        items.push({ id: `pc_${q}_${idx++}`, name, setName, number, imageUrl, prices, priceHistory: [], source: 'PriceCharting', detailUrl });
+        const links = findPcGameLinks(html);
+        links.forEach(href => detailLinks.add(href.startsWith('http') ? href : base + href));
+        if (detailLinks.size >= 80) break;
     }
-    // Dovytěž reálné ceny z detailu (limituj počet i paralelismus)
-    const sample = items.slice(0, 24);
+
+    // 2) Stáhni detaily a vyparsuj přesné ceny (omezený paralelismus)
+    const results = [];
+    const urls = Array.from(detailLinks).slice(0, 80);
     const concurrency = 6;
-    for (let i = 0; i < sample.length; i += concurrency) {
-        const chunk = sample.slice(i, i + concurrency);
-        await Promise.all(chunk.map(async (it) => {
-            if (!it.detailUrl) return;
-            const detailHtml = await fetchHtml(it.detailUrl, {
+    for (let i = 0; i < urls.length; i += concurrency) {
+        const chunk = urls.slice(i, i + concurrency);
+        const items = await Promise.all(chunk.map(async (detailUrl, idx) => {
+            const html = await fetchHtml(detailUrl, {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
                 'Accept': 'text/html'
             });
-            if (!detailHtml) return;
-            const detailPrices = collectPcGrades(detailHtml);
-            if (detailPrices && detailPrices.length) it.prices = detailPrices;
+            if (!html) return null;
+            const itm = parsePcDetail(html, detailUrl, q, i + idx);
+            return itm;
         }));
+        items.forEach(it => { if (it) results.push(it); });
+        if (results.length >= 60) break;
     }
 
-    // Odstraň pomocná pole
-    items.forEach(it => { delete it.detailUrl; });
-    return items;
+    return results;
+}
+
+function findPcGameLinks(html) {
+    const out = new Set();
+    const re = /<a[^>]*href="(\/game\/[^"#?]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+        const href = m[1];
+        if (href && href.includes('/game/')) out.add(href);
+    }
+    return Array.from(out);
+}
+
+function parsePcDetail(html, url, q, index) {
+    const title = pick(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i) || cap(q);
+    const name = title.replace(/\s*\|[\s\S]*/,'').replace(/\s+#\d+.*/,'').trim();
+    const number = (title.match(/#\s?(\d+)/) || [,'?'])[1];
+    const setName = pick(html, />\s*Pokemon\s+Base\s+Set\s*</i) ? 'Pokemon Base Set' : (pick(html, /Trading Cards[^<]*>\s*Pokemon Cards\s*>\s*([^<]+)/i) || 'PriceCharting');
+
+    // Obrazek – vezmi první větší z části "More Photos" nebo "Main Image"
+    let imageUrl = pick(html, /<img[^>]*alt="[^"]*Main Image[^"]*"[^>]*src="([^"]+\.(?:jpg|jpeg|png|webp))"/i)
+                  || pick(html, /<img[^>]*src="([^"]+\/(?:large|main|hires)[^"<>]*\.(?:jpg|jpeg|png|webp))"/i)
+                  || pick(html, /<img[^>]*src="([^"]+\.(?:jpg|jpeg|png|webp))"[^>]*class="[^"]*(?:main|photo)[^"]*"/i);
+    if (imageUrl && !/^https?:/i.test(imageUrl)) imageUrl = `https://www.pricecharting.com${imageUrl}`;
+
+    // Ceny – parsuj sekci "Full Price Guide"
+    const grades = [
+        'Ungraded','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 9.5',
+        'SGC 10','CGC 10','PSA 10','BGS 10','BGS 10 Black','CGC 10 Pristine'
+    ];
+    const prices = [];
+    for (const label of grades) {
+        const val = findDollarNear(html, label);
+        if (val !== null) {
+            const grade = mapLabelToPsa(label);
+            if (grade) prices.push({ grade, price: Math.round(val*100), source: 'PriceCharting', type: grade==='PSA0'?'Neohodnoceno':`PSA ${grade.slice(3)}` });
+        }
+    }
+    // dedupe keep highest per grade
+    const best = new Map();
+    for (const p of prices) { const prev = best.get(p.grade); if (!prev || p.price > prev.price) best.set(p.grade, p); }
+
+    return { id: `pc_${q}_${index}`, name, setName, number, imageUrl, prices: Array.from(best.values()).sort((a,b)=>parseInt(b.grade.slice(3))-parseInt(a.grade.slice(3))), priceHistory: [], source: 'PriceCharting', url };
+}
+
+function findDollarNear(html, label) {
+    // hledej buď v tabulce (label v <td>) nebo obecně do 150 znaků
+    const patterns = [
+        new RegExp(label.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&') + '[^$]{0,160}\\$\\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?)','i'),
+        new RegExp('<td[^>]*>\\s*' + label.replace(/[-/\\^$*+?.()|[\]{}]/g,'\\$&') + '\\s*<\\/td>\\s*<td[^>]*>\\s*\\$\\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?)','i')
+    ];
+    for (const re of patterns) {
+        const m = html.match(re);
+        if (m) {
+            const v = parseFloat(m[1].replace(/,/g,''));
+            if (v>0 && v<1000000) return v;
+        }
+    }
+    return null;
+}
+
+function mapLabelToPsa(label) {
+    const l = label.toLowerCase();
+    if (l.includes('ungraded')) return 'PSA0';
+    const g = l.match(/grade\s*(\d+(?:\.5)?)/);
+    if (g) {
+        const val = g[1];
+        if (val === '9.5') return 'PSA9';
+        const n = parseInt(val,10); if (n>=1 && n<=10) return `PSA${n}`;
+    }
+    if (l.includes('psa 10')) return 'PSA10';
+    if (l.includes('bgs 10')) return 'PSA10';
+    if (l.includes('sgc 10')) return 'PSA10';
+    if (l.includes('cgc 10')) return 'PSA10';
+    if (l.includes('pristine')) return 'PSA10';
+    return null;
 }
 
 function collectPcGrades(html) {
