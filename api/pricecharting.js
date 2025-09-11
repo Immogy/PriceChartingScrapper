@@ -1,7 +1,7 @@
 'use strict';
 
 // Serverless handler – čistý scraper bez mocků, zdroje: PriceCharting a CardMarket
-module.exports.config = { runtime: 'nodejs18.x' };
+module.exports.config = { runtime: 'nodejs22.x' };
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -56,10 +56,32 @@ async function scrapePriceCharting(q) {
         const number = pick(row, /(\d+)\s*\/\s*\d+/) || pick(row, /#\s*(\d+)/) || '?';
         let imageUrl = pick(row, /<img[^>]*src="([^"]*\.(?:jpg|jpeg|png|webp))"/i) || '';
         if (imageUrl && !/^https?:/i.test(imageUrl)) imageUrl = `https://www.pricecharting.com${imageUrl}`;
+        // Detail URL pro přesné ceny
+        let detailUrl = pick(row, /<a[^>]*href="([^"]+)"/i) || '';
+        if (detailUrl && !/^https?:/i.test(detailUrl)) detailUrl = `https://www.pricecharting.com${detailUrl}`;
 
         const prices = collectPcGrades(row);
-        items.push({ id: `pc_${q}_${idx++}`, name, setName, number, imageUrl, prices, priceHistory: [], source: 'PriceCharting' });
+        items.push({ id: `pc_${q}_${idx++}`, name, setName, number, imageUrl, prices, priceHistory: [], source: 'PriceCharting', detailUrl });
     }
+    // Dovytěž reálné ceny z detailu (limituj počet i paralelismus)
+    const sample = items.slice(0, 24);
+    const concurrency = 6;
+    for (let i = 0; i < sample.length; i += concurrency) {
+        const chunk = sample.slice(i, i + concurrency);
+        await Promise.all(chunk.map(async (it) => {
+            if (!it.detailUrl) return;
+            const detailHtml = await fetchHtml(it.detailUrl, {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+                'Accept': 'text/html'
+            });
+            if (!detailHtml) return;
+            const detailPrices = collectPcGrades(detailHtml);
+            if (detailPrices && detailPrices.length) it.prices = detailPrices;
+        }));
+    }
+
+    // Odstraň pomocná pole
+    items.forEach(it => { delete it.detailUrl; });
     return items;
 }
 
