@@ -51,12 +51,7 @@ export default async function handler(req, res) {
                 console.log(`CardMarket success: ${cardVariants.length} cards`);
             } catch (cardMarketError) {
                 console.log('CardMarket also failed:', cardMarketError.message);
-                
-                // Pokud oba selžou, vytvoř alespoň základní kartu pro testování
-                console.log('Creating fallback card for testing...');
-                cardVariants = [createTestCard(pokemon)];
-                source = 'Fallback';
-                console.log(`Fallback card created: ${cardVariants.length} cards`);
+                throw new Error(`Both sources failed. PriceCharting: ${priceChartingError.message}, CardMarket: ${cardMarketError.message}`);
             }
         }
         
@@ -217,7 +212,7 @@ function extractCardFromMatch(matchHtml, pokemonName, index) {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
             setName: 'Unknown Set',
             number: '?',
-            imageUrl: null, // Bude nastaveno z HTML
+            imageUrl: null, // Pouze skutečné obrázky z HTML
             prices: [],
             priceHistory: [],
             source: 'PriceCharting'
@@ -352,9 +347,9 @@ function extractCardFromMatch(matchHtml, pokemonName, index) {
             }
         }
         
-        // Fallback pro obrázek pouze pokud se nepodařilo extrahovat ze skutečného HTML
+        // Používej pouze skutečné obrázky z HTML - žádné fallback
         if (!cardData.imageUrl) {
-            cardData.imageUrl = getPokemonCardImage(pokemonName, index);
+            console.log('No real image found in HTML for:', pokemonName);
         }
         
         // Extrahuj ceny
@@ -375,7 +370,7 @@ function extractGeneralCard(html, pokemonName) {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
             setName: 'Unknown Set',
             number: '?',
-            imageUrl: null, // Bude nastaveno z HTML
+            imageUrl: null, // Pouze skutečné obrázky z HTML
             prices: [],
             priceHistory: [],
             source: 'PriceCharting'
@@ -397,7 +392,7 @@ function extractRealPrices(html) {
     try {
         console.log('Extracting real prices from HTML...');
         
-        // Hledej skutečné ceny v HTML - rozšířené patterns pro lepší pokrytí
+        // Hledej skutečné ceny v HTML - maximálně rozšířené patterns
         const pricePatterns = [
             // PSA ceny s různými formáty - více variant
             /PSA\s*10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
@@ -437,11 +432,25 @@ function extractRealPrices(html) {
             /G\s*3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             /G\s*2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             /G\s*1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            // Další formáty cen
+            /10[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /9[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /8[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /7[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /6[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /5[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /4[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /3[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /2[^$]*\$([0-9,]+\.?[0-9]*)/gi,
+            /1[^$]*\$([0-9,]+\.?[0-9]*)/gi,
             // Obecné ceny - více variant
             /\$([0-9,]+\.?[0-9]*)/g,
             /Price:\s*\$([0-9,]+\.?[0-9]*)/gi,
             /Value:\s*\$([0-9,]+\.?[0-9]*)/gi,
-            /Cost:\s*\$([0-9,]+\.?[0-9]*)/gi
+            /Cost:\s*\$([0-9,]+\.?[0-9]*)/gi,
+            /Sell:\s*\$([0-9,]+\.?[0-9]*)/gi,
+            /Buy:\s*\$([0-9,]+\.?[0-9]*)/gi,
+            /Market:\s*\$([0-9,]+\.?[0-9]*)/gi
         ];
         
         const gradeMap = {
@@ -454,8 +463,11 @@ function extractRealPrices(html) {
             // G patterns (22-31)
             22: 'PSA10', 23: 'PSA9', 24: 'PSA8', 25: 'PSA7', 26: 'PSA6',
             27: 'PSA5', 28: 'PSA4', 29: 'PSA3', 30: 'PSA2', 31: 'PSA1',
-            // General prices (32+)
-            32: 'PSA0', 33: 'PSA0', 34: 'PSA0', 35: 'PSA0'
+            // Number patterns (32-41)
+            32: 'PSA10', 33: 'PSA9', 34: 'PSA8', 35: 'PSA7', 36: 'PSA6',
+            37: 'PSA5', 38: 'PSA4', 39: 'PSA3', 40: 'PSA2', 41: 'PSA1',
+            // General prices (42+)
+            42: 'PSA0', 43: 'PSA0', 44: 'PSA0', 45: 'PSA0', 46: 'PSA0', 47: 'PSA0', 48: 'PSA0'
         };
         
         pricePatterns.forEach((pattern, index) => {
@@ -570,46 +582,6 @@ function getPokemonCardImage(pokemonName, index) {
     return images[index % images.length] || images[0];
 }
 
-// Funkce pro vytvoření testovací karty když oba scrapery selžou
-function createTestCard(pokemonName) {
-    console.log('Creating test card for:', pokemonName);
-    
-    return {
-        id: `test_${pokemonName.toLowerCase().replace(/\s+/g, '_')}`,
-        name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
-        setName: 'Base Set',
-        number: '4',
-        imageUrl: getPokemonCardImage(pokemonName, 0),
-        prices: [
-            {
-                grade: 'PSA10',
-                price: 50000, // $500
-                source: 'Test',
-                type: 'PSA 10'
-            },
-            {
-                grade: 'PSA9',
-                price: 25000, // $250
-                source: 'Test',
-                type: 'PSA 9'
-            },
-            {
-                grade: 'PSA8',
-                price: 15000, // $150
-                source: 'Test',
-                type: 'PSA 8'
-            },
-            {
-                grade: 'PSA0',
-                price: 10000, // $100
-                source: 'Test',
-                type: 'Neohodnoceno'
-            }
-        ],
-        priceHistory: [],
-        source: 'Test'
-    };
-}
 
 // CardMarket scraper
 async function scrapeCardMarket(pokemonName, grade = 'all') {
@@ -734,7 +706,7 @@ function extractCardFromCardMarketMatch(matchHtml, pokemonName, index) {
             name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
             setName: 'Unknown Set',
             number: '?',
-            imageUrl: null, // Bude nastaveno z HTML
+            imageUrl: null, // Pouze skutečné obrázky z HTML
             prices: [],
             priceHistory: [],
             source: 'CardMarket'
@@ -846,9 +818,9 @@ function extractCardFromCardMarketMatch(matchHtml, pokemonName, index) {
             }
         }
         
-        // Fallback pro obrázek pouze pokud se nepodařilo extrahovat ze skutečného HTML
+        // Používej pouze skutečné obrázky z HTML - žádné fallback
         if (!cardData.imageUrl) {
-            cardData.imageUrl = getPokemonCardImage(pokemonName, index);
+            console.log('No real image found in HTML for:', pokemonName);
         }
         
         // Extrahuj ceny z CardMarket
