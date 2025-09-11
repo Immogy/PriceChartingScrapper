@@ -364,9 +364,19 @@ function extractCardFromMatch(matchHtml, pokemonName, index) {
             }
         }
         
-        // Používej pouze skutečné obrázky z HTML - žádné fallback
+        // Pokud se nepodařilo extrahovat obrázek z HTML, zkus Pokémon TCG API
         if (!cardData.imageUrl) {
             console.log('No real image found in HTML for:', pokemonName);
+            try {
+                const response = await fetch(`https://api.pokemontcg.io/v2/cards?q=name:"${pokemonName}"&pageSize=1`);
+                const data = await response.json();
+                if (data.data && data.data.length > 0) {
+                    cardData.imageUrl = data.data[0].images.large || data.data[0].images.small;
+                    console.log('Found image from Pokémon TCG API:', cardData.imageUrl);
+                }
+            } catch (error) {
+                console.log('Failed to fetch image from Pokémon TCG API:', error.message);
+            }
         }
         
         // Extrahuj ceny
@@ -886,9 +896,19 @@ function extractCardFromCardMarketMatch(matchHtml, pokemonName, index) {
             }
         }
         
-        // Používej pouze skutečné obrázky z HTML - žádné fallback
+        // Pokud se nepodařilo extrahovat obrázek z HTML, zkus Pokémon TCG API
         if (!cardData.imageUrl) {
             console.log('No real image found in HTML for:', pokemonName);
+            try {
+                const response = await fetch(`https://api.pokemontcg.io/v2/cards?q=name:"${pokemonName}"&pageSize=1`);
+                const data = await response.json();
+                if (data.data && data.data.length > 0) {
+                    cardData.imageUrl = data.data[0].images.large || data.data[0].images.small;
+                    console.log('Found image from Pokémon TCG API:', cardData.imageUrl);
+                }
+            } catch (error) {
+                console.log('Failed to fetch image from Pokémon TCG API:', error.message);
+            }
         }
         
         // Extrahuj ceny z CardMarket
