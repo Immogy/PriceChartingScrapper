@@ -1,4 +1,5 @@
 'use strict';
+const cheerio = require('cheerio');
 
 // Serverless handler – čistý scraper bez mocků, zdroje: PriceCharting a CardMarket
 module.exports.config = { runtime: 'nodejs22.x' };
@@ -10,17 +11,22 @@ module.exports = async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' });
 
-    const { pokemon } = req.query || {};
+    const { pokemon, debug } = req.query || {};
     if (!pokemon) return res.status(400).json({ success: false, error: 'pokemon is required' });
 
+    const dbg = { searchTried: [], pcLinks: 0, pcDetails: 0, cmTried: false };
     try {
-        const pc = await scrapePriceCharting(pokemon);
+        const pc = await scrapePriceCharting(pokemon, dbg);
         if (pc.length) return res.status(200).json({ success: true, source: 'PriceCharting', pokemon, cards: pc, count: pc.length });
-        const cm = await scrapeCardMarket(pokemon);
-        return res.status(200).json({ success: true, source: 'CardMarket', pokemon, cards: cm, count: cm.length });
+        const cm = await scrapeCardMarket(pokemon, dbg);
+        const payload = { success: true, source: 'CardMarket', pokemon, cards: cm, count: cm.length };
+        if (debug === '1') payload.debug = dbg;
+        return res.status(200).json(payload);
     } catch (e) {
         console.error('Handler error:', e);
-        return res.status(200).json({ success: true, source: 'none', pokemon, cards: [], count: 0 });
+        const payload = { success: true, source: 'none', pokemon, cards: [], count: 0 };
+        if (debug === '1') payload.debug = dbg;
+        return res.status(200).json(payload);
     }
 }
 
@@ -36,7 +42,7 @@ async function fetchHtml(url, headers) {
 }
 
 // ===== PriceCharting =====
-async function scrapePriceCharting(q) {
+async function scrapePriceCharting(q, dbg = {}) {
     const base = 'https://www.pricecharting.com';
     const searchBase = `${base}/search-products?q=${encodeURIComponent(q + ' pokemon card')}`;
     const searchAlt = `${base}/search-products?q=${encodeURIComponent(q)}`;
@@ -45,6 +51,7 @@ async function scrapePriceCharting(q) {
     const detailLinks = new Set();
     for (let page = 1; page <= 3; page++) {
         const url = page === 1 ? searchBase : `${searchBase}&page=${page}`;
+        dbg.searchTried && dbg.searchTried.push(url);
         const html = await fetchHtml(url, {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -63,6 +70,7 @@ async function scrapePriceCharting(q) {
     if (detailLinks.size === 0) {
         for (let page = 1; page <= 2; page++) {
             const url = page === 1 ? searchAlt : `${searchAlt}&page=${page}`;
+            dbg.searchTried && dbg.searchTried.push(url);
             const html = await fetchHtml(url, {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -80,6 +88,7 @@ async function scrapePriceCharting(q) {
     // 2) Stáhni detaily a vyparsuj přesné ceny (omezený paralelismus)
     const results = [];
     const urls = Array.from(detailLinks).slice(0, 80);
+    dbg.pcLinks = urls.length;
     const concurrency = 6;
     for (let i = 0; i < urls.length; i += concurrency) {
         const chunk = urls.slice(i, i + concurrency);
@@ -98,38 +107,34 @@ async function scrapePriceCharting(q) {
         items.forEach(it => { if (it) results.push(it); });
         if (results.length >= 60) break;
     }
+    dbg.pcDetails = results.length;
 
     return results;
 }
 
 function findPcGameLinks(html) {
     const out = new Set();
-    const patterns = [
-        /<a[^>]*href="(\/game\/[^"#?]+)"[^>]*>/gi,           // klasické detail stránky
-        /<a[^>]*href="(\/prices\/[^"#?]+)"[^>]*>/gi,         // někdy ukazují /prices/
-        /<a[^>]*href="(\/.*?pokemon[^"#?]*)"[^>]*>/gi        // obecně jakýkoli odkaz s "pokemon"
-    ];
-    for (const re of patterns) {
-        let m;
-        while ((m = re.exec(html)) !== null) {
-            const href = m[1];
-            if (!href) continue;
-            if (href.includes('/game/') || href.includes('/prices/') || href.toLowerCase().includes('pokemon')) {
-                out.add(href);
-            }
-        }
-    }
+    try {
+        const $ = cheerio.load(html);
+        $('a[href]').each((_, el) => {
+            const href = $(el).attr('href');
+            if (!href) return;
+            if (href.startsWith('/game/') || href.startsWith('/prices/')) out.add(href);
+        });
+    } catch {}
     return Array.from(out);
 }
 
 function parsePcDetail(html, url, q, index) {
-    const title = pick(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i) || cap(q);
+    const $ = cheerio.load(html);
+    const title = ($('h1').first().text() || '').trim() || pick(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i) || cap(q);
     const name = title.replace(/\s*\|[\s\S]*/,'').replace(/\s+#\d+.*/,'').trim();
     const number = (title.match(/#\s?(\d+)/) || [,'?'])[1];
     const setName = pick(html, />\s*Pokemon\s+Base\s+Set\s*</i) ? 'Pokemon Base Set' : (pick(html, /Trading Cards[^<]*>\s*Pokemon Cards\s*>\s*([^<]+)/i) || 'PriceCharting');
 
     // Obrazek – vezmi první větší z části "More Photos" nebo "Main Image"
-    let imageUrl = pick(html, /<img[^>]*alt="[^"]*Main Image[^"]*"[^>]*src="([^"]+\.(?:jpg|jpeg|png|webp))"/i)
+    let imageUrl = $('meta[property="og:image"]').attr('content')
+                  || pick(html, /<img[^>]*alt="[^"]*Main Image[^"]*"[^>]*src="([^"]+\.(?:jpg|jpeg|png|webp))"/i)
                   || pick(html, /<img[^>]*src="([^"]+\/(?:large|main|hires)[^"<>]*\.(?:jpg|jpeg|png|webp))"/i)
                   || pick(html, /<img[^>]*src="([^"]+\.(?:jpg|jpeg|png|webp))"[^>]*class="[^"]*(?:main|photo)[^"]*"/i);
     if (imageUrl && !/^https?:/i.test(imageUrl)) imageUrl = `https://www.pricecharting.com${imageUrl}`;
@@ -212,8 +217,9 @@ function collectPcGrades(html) {
 }
 
 // ===== CardMarket =====
-async function scrapeCardMarket(q) {
+async function scrapeCardMarket(q, dbg = {}) {
     const url = `https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=${encodeURIComponent(q)}`;
+    dbg.cmTried = true;
     const html = await fetchHtml(url, {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
         'Accept': 'text/html',
