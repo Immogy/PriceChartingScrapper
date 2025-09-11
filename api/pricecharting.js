@@ -21,19 +21,43 @@ export default async function handler(req, res) {
     }
 
     try {
-        const cardVariants = await scrapePriceCharting(pokemon, grade);
+        let cardVariants = [];
+        let source = 'none';
+        
+        // Zkus nejprve PriceCharting
+        try {
+            console.log('Trying PriceCharting first...');
+            cardVariants = await scrapePriceCharting(pokemon, grade);
+            source = 'PriceCharting';
+            console.log(`PriceCharting success: ${cardVariants.length} cards`);
+        } catch (priceChartingError) {
+            console.log('PriceCharting failed:', priceChartingError.message);
+            
+            // Fallback na CardMarket
+            try {
+                console.log('Trying CardMarket as fallback...');
+                cardVariants = await scrapeCardMarket(pokemon, grade);
+                source = 'CardMarket';
+                console.log(`CardMarket success: ${cardVariants.length} cards`);
+            } catch (cardMarketError) {
+                console.log('CardMarket also failed:', cardMarketError.message);
+                throw new Error(`Both sources failed. PriceCharting: ${priceChartingError.message}, CardMarket: ${cardMarketError.message}`);
+            }
+        }
+        
         res.status(200).json({ 
             success: true, 
             pokemon, 
             grade: grade || 'all',
             cards: cardVariants,
-            count: cardVariants.length
+            count: cardVariants.length,
+            source: source
         });
     } catch (error) {
-        console.error('Scraping error:', error);
+        console.error('All scraping failed:', error);
         res.status(500).json({ 
             success: false, 
-            error: 'Failed to scrape card data',
+            error: 'Failed to scrape card data from all sources',
             details: error.message 
         });
     }
@@ -43,37 +67,54 @@ async function scrapePriceCharting(pokemonName, grade = 'all') {
     console.log('Scraping REAL data from PriceCharting for:', pokemonName);
     
     try {
-        // Skutečné scrapování z PriceCharting
+        // Skutečné scrapování z PriceCharting s timeout
         const searchUrl = `https://www.pricecharting.com/search-products?q=${encodeURIComponent(pokemonName + ' pokemon card')}`;
         console.log('Search URL:', searchUrl);
         
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 sekund timeout
+        
         const response = await fetch(searchUrl, {
+            signal: controller.signal,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0'
             }
         });
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
         }
 
         const html = await response.text();
         console.log('HTML received, length:', html.length);
         
+        if (html.length < 1000) {
+            throw new Error('Received HTML is too short, likely an error page');
+        }
+        
         const cardVariants = parsePriceChartingHTML(html, pokemonName, grade);
         console.log('Parsed card variants:', cardVariants);
+        
+        if (cardVariants.length === 0) {
+            throw new Error('No card variants found in HTML');
+        }
         
         return cardVariants;
         
     } catch (error) {
         console.error('Scraping error:', error);
-        // Vrať alespoň fallback s správným názvem
-        return [createFallbackCard(pokemonName)];
+        throw error; // Propaga chybu místo vracení fallback
     }
 }
 
@@ -120,15 +161,14 @@ function findCardMatches(html, pokemonName) {
     
     console.log('Searching for Pokemon:', pokemonName);
     
-    // Hledej různé patterns pro karty
+    // Hledej různé patterns pro karty - specifické pro PriceCharting
     const patterns = [
-        // Pattern pro výsledky vyhledávání
+        // PriceCharting specific patterns
+        /<tr[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi,
+        /<div[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         /<div[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-        /<div[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         /<div[^>]*class="[^"]*item[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-        // Pattern pro jednotlivé karty
-        /<div[^>]*class="[^"]*card[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
         // Pattern pro odkazy na karty
         /<a[^>]*href="[^"]*pokemon[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
         // Pattern pro tabulky s kartami
@@ -143,7 +183,7 @@ function findCardMatches(html, pokemonName) {
         
         patternMatches.forEach(match => {
             if (match[1] && match[1].toLowerCase().includes(pokemonName.toLowerCase())) {
-                console.log(`Found match for ${pokemonName}:`, match[1].substring(0, 100));
+                console.log(`Found match for ${pokemonName}:`, match[1].substring(0, 200));
                 matches.push(match[1]);
             }
         });
@@ -347,49 +387,10 @@ function extractRealPrices(html) {
             });
         });
         
-        // Pokud nenajdeme žádné ceny, vytvoř mock ceny pro testování
+        // Žádné mock data - pouze skutečné ceny z PriceCharting
         if (prices.length === 0) {
-            console.log('No prices found, creating mock prices for testing');
-            const mockPrices = [
-                { grade: 'PSA10', price: 1000, source: 'PriceCharting', type: 'PSA 10' },
-                { grade: 'PSA9', price: 500, source: 'PriceCharting', type: 'PSA 9' },
-                { grade: 'PSA8', price: 250, source: 'PriceCharting', type: 'PSA 8' },
-                { grade: 'PSA7', price: 150, source: 'PriceCharting', type: 'PSA 7' },
-                { grade: 'PSA6', price: 100, source: 'PriceCharting', type: 'PSA 6' },
-                { grade: 'PSA5', price: 75, source: 'PriceCharting', type: 'PSA 5' },
-                { grade: 'PSA4', price: 50, source: 'PriceCharting', type: 'PSA 4' },
-                { grade: 'PSA3', price: 35, source: 'PriceCharting', type: 'PSA 3' },
-                { grade: 'PSA2', price: 25, source: 'PriceCharting', type: 'PSA 2' },
-                { grade: 'PSA1', price: 15, source: 'PriceCharting', type: 'PSA 1' },
-                { grade: 'PSA0', price: 10, source: 'PriceCharting', type: 'Neohodnoceno' }
-            ];
-            return mockPrices;
-        }
-        
-        // Pokud máme jen málo cen, doplň je mock cenami
-        if (prices.length < 5) {
-            console.log('Few prices found, supplementing with mock prices');
-            const mockPrices = [
-                { grade: 'PSA10', price: 1000, source: 'PriceCharting', type: 'PSA 10' },
-                { grade: 'PSA9', price: 500, source: 'PriceCharting', type: 'PSA 9' },
-                { grade: 'PSA8', price: 250, source: 'PriceCharting', type: 'PSA 8' },
-                { grade: 'PSA7', price: 150, source: 'PriceCharting', type: 'PSA 7' },
-                { grade: 'PSA6', price: 100, source: 'PriceCharting', type: 'PSA 6' },
-                { grade: 'PSA5', price: 75, source: 'PriceCharting', type: 'PSA 5' },
-                { grade: 'PSA4', price: 50, source: 'PriceCharting', type: 'PSA 4' },
-                { grade: 'PSA3', price: 35, source: 'PriceCharting', type: 'PSA 3' },
-                { grade: 'PSA2', price: 25, source: 'PriceCharting', type: 'PSA 2' },
-                { grade: 'PSA1', price: 15, source: 'PriceCharting', type: 'PSA 1' },
-                { grade: 'PSA0', price: 10, source: 'PriceCharting', type: 'Neohodnoceno' }
-            ];
-            
-            // Přidej mock ceny pro stupně, které nemáme
-            const existingGrades = new Set(prices.map(p => p.grade));
-            mockPrices.forEach(mockPrice => {
-                if (!existingGrades.has(mockPrice.grade)) {
-                    prices.push(mockPrice);
-                }
-            });
+            console.log('No real prices found from PriceCharting');
+            return [];
         }
         
         // Odstraň duplicity a seřaď podle PSA stupně
@@ -426,8 +427,8 @@ function createFallbackCard(pokemonName) {
         name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
         setName: 'Unknown Set',
         number: '?',
-        imageUrl: `https://via.placeholder.com/200x280/4A90E2/FFFFFF?text=${encodeURIComponent(pokemonName)}`,
-        prices: []
+        imageUrl: getPokemonCardImage(pokemonName, 0),
+        prices: [] // Žádné mock ceny - pouze skutečné data
     };
 }
 
@@ -480,6 +481,286 @@ function getPokemonCardImage(pokemonName, index) {
     
     const images = cardImages[pokemon] || cardImages['pikachu'];
     return images[index % images.length] || images[0];
+}
+
+// CardMarket scraper
+async function scrapeCardMarket(pokemonName, grade = 'all') {
+    console.log('Scraping REAL data from CardMarket for:', pokemonName);
+    
+    try {
+        // CardMarket search URL
+        const searchUrl = `https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=${encodeURIComponent(pokemonName)}`;
+        console.log('CardMarket Search URL:', searchUrl);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 sekund timeout
+        
+        const response = await fetch(searchUrl, {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0'
+            }
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+        }
+
+        const html = await response.text();
+        console.log('CardMarket HTML received, length:', html.length);
+        
+        if (html.length < 1000) {
+            throw new Error('Received HTML is too short, likely an error page');
+        }
+        
+        const cardVariants = parseCardMarketHTML(html, pokemonName, grade);
+        console.log('Parsed CardMarket card variants:', cardVariants);
+        
+        if (cardVariants.length === 0) {
+            throw new Error('No card variants found in CardMarket HTML');
+        }
+        
+        return cardVariants;
+        
+    } catch (error) {
+        console.error('CardMarket scraping error:', error);
+        throw error;
+    }
+}
+
+function parseCardMarketHTML(html, pokemonName, grade) {
+    try {
+        console.log('Parsing CardMarket HTML for:', pokemonName);
+        
+        const cardVariants = [];
+        
+        // Hledej karty v CardMarket HTML
+        const cardMatches = findCardMarketMatches(html, pokemonName);
+        console.log('Found CardMarket card matches:', cardMatches.length);
+        
+        cardMatches.forEach((match, index) => {
+            const cardData = extractCardFromCardMarketMatch(match, pokemonName, index);
+            if (cardData) {
+                cardVariants.push(cardData);
+            }
+        });
+        
+        console.log('Parsed CardMarket card variants:', cardVariants);
+        return cardVariants;
+    } catch (error) {
+        console.error('CardMarket parsing error:', error);
+        return [];
+    }
+}
+
+function findCardMarketMatches(html, pokemonName) {
+    const matches = [];
+    
+    console.log('Searching CardMarket for Pokemon:', pokemonName);
+    
+    // CardMarket specific patterns
+    const patterns = [
+        // CardMarket product rows
+        /<tr[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi,
+        /<div[^>]*class="[^"]*product[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+        /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+        /<div[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+        // CardMarket specific patterns
+        /<div[^>]*class="[^"]*card[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+        /<a[^>]*href="[^"]*Pokemon[^"]*"[^>]*>([\s\S]*?)<\/a>/gi
+    ];
+    
+    patterns.forEach((pattern, patternIndex) => {
+        const patternMatches = [...html.matchAll(pattern)];
+        console.log(`CardMarket Pattern ${patternIndex} found ${patternMatches.length} matches`);
+        
+        patternMatches.forEach(match => {
+            if (match[1] && match[1].toLowerCase().includes(pokemonName.toLowerCase())) {
+                console.log(`Found CardMarket match for ${pokemonName}:`, match[1].substring(0, 200));
+                matches.push(match[1]);
+            }
+        });
+    });
+    
+    console.log(`Total CardMarket matches found: ${matches.length}`);
+    return matches;
+}
+
+function extractCardFromCardMarketMatch(matchHtml, pokemonName, index) {
+    try {
+        console.log('Extracting card from CardMarket match:', matchHtml.substring(0, 200));
+        
+        const cardData = {
+            id: `cardmarket_${pokemonName.toLowerCase().replace(/\s+/g, '_')}_${index}`,
+            name: pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1),
+            setName: 'Unknown Set',
+            number: '?',
+            imageUrl: getPokemonCardImage(pokemonName, index),
+            prices: [],
+            priceHistory: [],
+            source: 'CardMarket'
+        };
+        
+        // Extrahuj název karty z CardMarket HTML
+        const namePatterns = [
+            /<h[1-6][^>]*>([^<]*${pokemonName}[^<]*)<\/h[1-6]>/i,
+            /<a[^>]*>([^<]*${pokemonName}[^<]*)<\/a>/i,
+            /<span[^>]*>([^<]*${pokemonName}[^<]*)<\/span>/i,
+            /<div[^>]*>([^<]*${pokemonName}[^<]*)<\/div>/i
+        ];
+        
+        for (const pattern of namePatterns) {
+            const nameMatch = matchHtml.match(pattern);
+            if (nameMatch && nameMatch[1]) {
+                cardData.name = nameMatch[1].trim();
+                break;
+            }
+        }
+        
+        // Extrahuj název setu z CardMarket
+        const setNamePatterns = [
+            /Pokemon\s+([^|<>]+)/i,
+            /Base\s+Set/i,
+            /Jungle/i,
+            /Fossil/i,
+            /Team\s+Rocket/i,
+            /Gym\s+Challenge/i,
+            /Gym\s+Heroes/i,
+            /Neo\s+Genesis/i,
+            /Neo\s+Discovery/i,
+            /Neo\s+Revelation/i,
+            /Neo\s+Destiny/i,
+            /Expedition/i,
+            /Aquapolis/i,
+            /Skyridge/i,
+            /Ruby\s+&amp;\s+Sapphire/i,
+            /Diamond\s+&amp;\s+Pearl/i,
+            /Platinum/i,
+            /HeartGold\s+&amp;\s+SoulSilver/i,
+            /Black\s+&amp;\s+White/i,
+            /XY/i,
+            /Sun\s+&amp;\s+Moon/i,
+            /Sword\s+&amp;\s+Shield/i,
+            /Brilliant\s+Stars/i,
+            /Astral\s+Radiance/i,
+            /Lost\s+Origin/i,
+            /Silver\s+Tempest/i,
+            /Scarlet\s+&amp;\s+Violet/i
+        ];
+        
+        for (const pattern of setNamePatterns) {
+            const setNameMatch = matchHtml.match(pattern);
+            if (setNameMatch) {
+                let setName = setNameMatch[1] ? setNameMatch[1].trim() : setNameMatch[0];
+                setName = setName.replace(/<[^>]*>/g, '').replace(/loading=lazy/g, '').replace(/\/\s*#\?/g, '').trim();
+                if (setName && setName !== 'loading=lazy' && setName !== '#?') {
+                    cardData.setName = setName;
+                    break;
+                }
+            }
+        }
+        
+        // Extrahuj číslo karty
+        const numberPatterns = [
+            /#(\d+)/i,
+            /No\.\s*(\d+)/i,
+            /Number\s*(\d+)/i,
+            /Card\s*(\d+)/i
+        ];
+        
+        for (const pattern of numberPatterns) {
+            const numberMatch = matchHtml.match(pattern);
+            if (numberMatch) {
+                let number = numberMatch[1];
+                number = number.replace(/[^\d]/g, '');
+                if (number && number !== '?') {
+                    cardData.number = number;
+                    break;
+                }
+            }
+        }
+        
+        // Extrahuj obrázek
+        const imageMatch = matchHtml.match(/<img[^>]*src="([^"]*)"[^>]*alt="[^"]*"/i);
+        if (imageMatch) {
+            cardData.imageUrl = imageMatch[1];
+        }
+        
+        // Extrahuj ceny z CardMarket
+        cardData.prices = extractCardMarketPrices(matchHtml);
+        
+        console.log('Extracted CardMarket card data:', cardData);
+        return cardData;
+    } catch (error) {
+        console.error('Error extracting card from CardMarket match:', error);
+        return null;
+    }
+}
+
+function extractCardMarketPrices(html) {
+    const prices = [];
+    
+    try {
+        console.log('Extracting CardMarket prices from HTML...');
+        
+        // CardMarket price patterns
+        const pricePatterns = [
+            // CardMarket specific price patterns
+            /€([0-9,]+\.?[0-9]*)/g,
+            /\$([0-9,]+\.?[0-9]*)/g,
+            /Price:\s*([0-9,]+\.?[0-9]*)/gi,
+            /From:\s*([0-9,]+\.?[0-9]*)/gi,
+            /To:\s*([0-9,]+\.?[0-9]*)/gi
+        ];
+        
+        pricePatterns.forEach((pattern, index) => {
+            const matches = [...html.matchAll(pattern)];
+            matches.forEach(match => {
+                const price = parseFloat(match[1].replace(',', ''));
+                if (price > 0 && price < 100000) {
+                    // CardMarket ceny jsou v EUR, převedeme na USD (přibližně)
+                    const priceUSD = Math.round(price * 1.1 * 100); // EUR to USD conversion
+                    
+                    prices.push({
+                        grade: 'PSA0', // CardMarket obvykle nemá PSA stupně
+                        price: priceUSD,
+                        source: 'CardMarket',
+                        type: 'Neohodnoceno'
+                    });
+                }
+            });
+        });
+        
+        // Odstraň duplicity
+        const uniquePrices = [];
+        const seenPrices = new Set();
+        
+        prices.forEach(price => {
+            const priceKey = `${price.grade}_${price.price}`;
+            if (!seenPrices.has(priceKey)) {
+                seenPrices.add(priceKey);
+                uniquePrices.push(price);
+            }
+        });
+        
+        console.log('Extracted CardMarket prices:', uniquePrices);
+        return uniquePrices;
+        
+    } catch (error) {
+        console.error('Error extracting CardMarket prices:', error);
+        return [];
+    }
 }
 
 function extractPriceHistory(html) {
