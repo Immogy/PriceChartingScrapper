@@ -549,8 +549,91 @@ async function createBasicCard(pokemonName) {
     };
 }
 
-// CardMarket scraper (zjednodušená verze)
+// CardMarket scraper (funkční fallback)
 async function scrapeCardMarket(pokemonName, grade = 'all') {
     console.log('Scraping REAL data from CardMarket for:', pokemonName);
-    throw new Error('CardMarket scraper not implemented yet');
+    try {
+        const searchUrl = `https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=${encodeURIComponent(pokemonName)}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(searchUrl, {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Connection': 'keep-alive',
+                'Referer': 'https://www.cardmarket.com/en/Pokemon',
+            }
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error(`CardMarket HTTP ${response.status}`);
+        const html = await response.text();
+        if (html.length < 1000) throw new Error('CardMarket HTML too short');
+
+        return parseCardMarketHTML(html, pokemonName, grade);
+    } catch (error) {
+        console.error('CardMarket scraping error:', error);
+        return [];
+    }
+}
+
+function parseCardMarketHTML(html, pokemonName, grade) {
+    const results = [];
+
+    // Každý produkt blok – CardMarket často používá "product"/"row" s názvem a cenou "From €X"
+    const itemRegex = /<div[^>]*class="[^"]*(?:product|row|article)[^"]*"[\s\S]*?>([\s\S]*?)<\/div>/gi;
+    let m;
+    let index = 0;
+    while ((m = itemRegex.exec(html)) !== null && results.length < 25) {
+        const block = m[1];
+        if (!new RegExp(pokemonName, 'i').test(block)) continue;
+
+        const nameMatch = block.match(/<a[^>]*>([^<]{3,100})<\/a>/i);
+        const name = nameMatch ? nameMatch[1].replace(/<[^>]*>/g, '').trim() : (pokemonName.charAt(0).toUpperCase() + pokemonName.slice(1));
+
+        // Set name (volitelně z breadcrumbu)
+        const setMatch = block.match(/<span[^>]*class="[^"]*(?:expansion|set)[^\"]*"[^>]*>([^<]+)<\/span>/i) || block.match(/\(([^)]+)\)/);
+        const setName = setMatch ? setMatch[1].replace(/<[^>]*>/g, '').trim() : 'CardMarket';
+
+        // Číslo karty, pokud je uvedeno ve tvaru 4/102 apod.
+        const numMatch = block.match(/(\d+)\s*\/\s*\d+/) || block.match(/#\s*(\d+)/);
+        const number = numMatch ? numMatch[1] : '?';
+
+        // Obrázek
+        let imageUrl = null;
+        const imgMatch = block.match(/<img[^>]*src="([^"]*\.(?:jpg|jpeg|png|webp))"/i);
+        if (imgMatch && imgMatch[1]) {
+            imageUrl = imgMatch[1].startsWith('http') ? imgMatch[1] : `https://www.cardmarket.com${imgMatch[1]}`;
+        }
+
+        // Cena "From €X"
+        const priceMatch = block.match(/From\s*€\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?)/i) || block.match(/€\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?)/i);
+        let psa0Cents = null;
+        if (priceMatch) {
+            const eurStr = priceMatch[1].replace(/\./g, '').replace(',', '.');
+            const eur = parseFloat(eurStr);
+            if (eur > 0 && eur < 100000) {
+                // Přibližný převod EUR→USD (bez multiplikátoru, pouze aktuální kurz by byl lepší přes API; zde jednoduché ~1.1)
+                const usd = eur * 1.1;
+                psa0Cents = Math.round(usd * 100);
+            }
+        }
+
+        // Fallback obrázku přes Pokémon TCG API, pokud chybí
+        results.push({
+            id: `cardmarket_${pokemonName.toLowerCase().replace(/\s+/g, '_')}_${index++}`,
+            name,
+            setName,
+            number,
+            imageUrl,
+            prices: psa0Cents ? [{ grade: 'PSA0', price: psa0Cents, source: 'CardMarket', type: 'Neohodnoceno' }] : [],
+            priceHistory: [],
+            source: 'CardMarket'
+        });
+    }
+
+    return results;
 }
