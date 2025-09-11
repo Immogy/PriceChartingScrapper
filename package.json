@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "engines": { "node": "22.x" }
+  "engines": { "node": "22.x" },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12"
+  }
 }
 
