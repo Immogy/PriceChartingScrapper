@@ -1,19 +1,12 @@
 {
   "name": "pokemon-price-scraper",
   "version": "1.0.0",
-  "description": "Pokemon card price scraper for PriceCharting.com",
+  "private": true,
   "main": "api/pricecharting.js",
-  "scripts": {
-    "dev": "vercel dev",
-    "deploy": "vercel --prod"
-  },
-  "dependencies": {
-    "cheerio": "^1.0.0-rc.12"
-  },
-  "devDependencies": {
-    "vercel": "^28.0.0"
-  },
+  "type": "commonjs",
   "engines": {
-    "node": ">=18.0.0"
-  }
+    "node": "18.x"
+  },
+  "dependencies": {}
 }
+
