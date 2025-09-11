@@ -1,12 +1,8 @@
 {
-  "name": "pokemon-price-scraper",
+  "name": "collector-scraper",
   "version": "1.0.0",
   "private": true,
-  "main": "api/pricecharting.js",
   "type": "commonjs",
-  "engines": {
-    "node": "18.x"
-  },
-  "dependencies": {}
+  "engines": { "node": "22.x" }
 }
 
