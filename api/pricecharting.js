@@ -11,11 +11,17 @@ module.exports = async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' });
 
-    const { pokemon, debug } = req.query || {};
-    if (!pokemon) return res.status(400).json({ success: false, error: 'pokemon is required' });
+    const { pokemon, debug, url } = req.query || {};
+    if (!pokemon && !url) return res.status(400).json({ success: false, error: 'pokemon or url is required' });
 
     const dbg = { searchTried: [], pcLinks: 0, pcDetails: 0, cmTried: false };
     try {
+        if (url) {
+            const item = await parseSinglePriceChartingUrl(url, pokemon || 'query');
+            const payload = { success: true, source: 'PriceCharting', pokemon: pokemon || 'byUrl', cards: item ? [item] : [], count: item ? 1 : 0 };
+            if (debug === '1') payload.debug = { byUrl: url };
+            return res.status(200).json(payload);
+        }
         const pc = await scrapePriceCharting(pokemon, dbg);
         if (pc.length) return res.status(200).json({ success: true, source: 'PriceCharting', pokemon, cards: pc, count: pc.length });
         const cm = await scrapeCardMarket(pokemon, dbg);
@@ -157,6 +163,18 @@ function parsePcDetail(html, url, q, index) {
     for (const p of prices) { const prev = best.get(p.grade); if (!prev || p.price > prev.price) best.set(p.grade, p); }
 
     return { id: `pc_${q}_${index}`, name, setName, number, imageUrl, prices: Array.from(best.values()).sort((a,b)=>parseInt(b.grade.slice(3))-parseInt(a.grade.slice(3))), priceHistory: [], source: 'PriceCharting', url };
+}
+
+async function parseSinglePriceChartingUrl(detailUrl, q) {
+    const html = await fetchHtml(detailUrl, {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive',
+        'Referer': 'https://www.pricecharting.com/'
+    });
+    if (!html) return null;
+    return parsePcDetail(html, detailUrl, q, 0);
 }
 
 function findDollarNear(html, label) {
