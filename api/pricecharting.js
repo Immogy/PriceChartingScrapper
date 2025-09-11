@@ -22,62 +22,44 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Pokemon name is required' });
     }
 
+    let cardVariants = [];
+    let source = 'none';
+
+    console.log(`=== SCRAPER STARTED for: ${pokemon} ===`);
+
+    // Zkus nejprve PriceCharting
+    let pcOk = false;
     try {
-        let cardVariants = [];
-        let source = 'none';
-        
-        console.log(`=== SCRAPER STARTED for: ${pokemon} ===`);
-        
-        // Zkus nejprve PriceCharting
-        try {
-            console.log('Trying PriceCharting first...');
-            cardVariants = await scrapePriceCharting(pokemon, grade);
-            source = 'PriceCharting';
-            console.log(`PriceCharting success: ${cardVariants.length} cards`);
-            
-            // Pokud PriceCharting vrátí prázdné výsledky, zkus CardMarket
-            if (cardVariants.length === 0) {
-                console.log('PriceCharting returned empty results, trying CardMarket...');
-                cardVariants = await scrapeCardMarket(pokemon, grade);
-                source = 'CardMarket';
-                console.log(`CardMarket success: ${cardVariants.length} cards`);
-            }
-        } catch (priceChartingError) {
-            console.log('PriceCharting failed:', priceChartingError.message);
-            
-            // Fallback na CardMarket
-            try {
-                console.log('Trying CardMarket as fallback...');
-                cardVariants = await scrapeCardMarket(pokemon, grade);
-                source = 'CardMarket';
-                console.log(`CardMarket success: ${cardVariants.length} cards`);
-            } catch (cardMarketError) {
-                console.log('CardMarket also failed:', cardMarketError.message);
-                
-                // Pokud oba selžou, vytvoř alespoň základní kartu s reálnými daty
-                console.log('Creating basic card with real data...');
-                cardVariants = [await createBasicCard(pokemon)];
-                source = 'Basic';
-                console.log(`Basic card created: ${cardVariants.length} cards`);
-            }
-        }
-        
-        res.status(200).json({ 
-            success: true, 
-            pokemon, 
-            grade: grade || 'all',
-            cards: cardVariants,
-            count: cardVariants.length,
-            source: source
-        });
-    } catch (error) {
-        console.error('All scraping failed:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to scrape card data from all sources',
-            details: error.message 
-        });
+        console.log('Trying PriceCharting first...');
+        cardVariants = await scrapePriceCharting(pokemon, grade);
+        source = 'PriceCharting';
+        pcOk = true;
+        console.log(`PriceCharting success: ${cardVariants.length} cards`);
+    } catch (e) {
+        console.log('PriceCharting failed:', e && e.message ? e.message : e);
     }
+
+    // Pokud PriceCharting selže nebo vrátí prázdno, zkus CardMarket
+    if (!pcOk || cardVariants.length === 0) {
+        try {
+            console.log('Trying CardMarket as fallback...');
+            cardVariants = await scrapeCardMarket(pokemon, grade);
+            source = 'CardMarket';
+            console.log(`CardMarket success: ${cardVariants.length} cards`);
+        } catch (e2) {
+            console.log('CardMarket failed:', e2 && e2.message ? e2.message : e2);
+        }
+    }
+
+    // Pokud pořád nic, vrať prázdné, ale 200 (kvůli CORS)
+    res.status(200).json({
+        success: true,
+        pokemon,
+        grade: grade || 'all',
+        cards: Array.isArray(cardVariants) ? cardVariants : [],
+        count: Array.isArray(cardVariants) ? cardVariants.length : 0,
+        source
+    });
 }
 
 async function scrapePriceCharting(pokemonName, grade = 'all') {
